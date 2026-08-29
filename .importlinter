@@ -1,0 +1,35 @@
+[importlinter]
+root_package = url_shortener
+include_external_packages = True
+
+[importlinter:contract:layers]
+name = The dependency arrow points inward
+type = layers
+layers =
+    url_shortener.adapter
+    url_shortener.application
+    url_shortener.domain
+
+[importlinter:contract:domain-is-pure]
+name = The domain imports no framework
+type = forbidden
+source_modules =
+    url_shortener.domain
+forbidden_modules =
+    fastapi
+    starlette
+    sqlalchemy
+    pydantic
+    alembic
+
+[importlinter:contract:application-is-pure]
+name = The application imports no framework
+type = forbidden
+source_modules =
+    url_shortener.application
+forbidden_modules =
+    fastapi
+    starlette
+    sqlalchemy
+    pydantic
+    alembic
