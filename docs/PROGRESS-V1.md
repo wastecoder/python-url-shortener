@@ -57,18 +57,48 @@ consultar nada**. Esta lista é também o roteiro da entrevista.
 
 ## Fase 0 — Fundação do repositório
 
-- [ ] Ambiente: instalar o uv e registrar o caveat da pasta sincronizada em nuvem — o `.venv` tem dezenas de milhares de arquivos pequenos, e a sincronização pode travar escrita no meio, o que aparece como falha inventada do `uv sync`. Não se resolve com `UV_PROJECT_ENVIRONMENT`, que é variável global e faria todos os projetos uv da máquina dividirem um venv só
-- [ ] `git init` com branch `main`, `.gitattributes` (`* text=auto eol=lf`), `.gitignore` (`.venv/`, `__pycache__/`, `.env`, `.pytest_cache/`, `.ruff_cache/`, `.mypy_cache/`, `htmlcov/` e **`docs/learning/`**)
-- [ ] Repositório no GitHub com **proteção da branch `main` exigindo o check do CI** — e sem exigência de review, que é impossível de satisfazer sozinho. Sem a proteção, "o merge é barrado quando o pipeline falha" é uma frase que ninguém consegue verificar
-- [ ] `pyproject.toml` com uv: Python 3.13; runtime `fastapi`, `uvicorn[standard]`, `sqlalchemy`, `alembic`, `psycopg[binary]`, `pydantic-settings`; grupo `dev` com `pytest`, `pytest-cov`, `httpx`, `testcontainers[postgres]`, `ruff`, `mypy`, `import-linter`. Versões travadas no `uv.lock`. Nada de `pytest-asyncio`: o projeto é síncrono por decisão
-- [ ] Configuração de ferramenta num arquivo só, o `pyproject.toml`: ruff (lint e format), mypy em modo strict, pytest com o marker `integration` registrado e `addopts = -m "not integration"`, coverage
-- [ ] Esqueleto hexagonal completo em `src/url_shortener/`, com um `__init__.py` por pacote contendo a docstring da responsabilidade da camada — escolhido em vez de `.gitkeep` porque é importável, sobrevive ao Git e serve de âncora para o `import-linter`
-- [ ] `.importlinter` com os três contratos: as camadas (`adapter` acima de `application` acima de `domain`) e os dois `forbidden` (nem `domain` nem `application` podem importar `fastapi`, `starlette`, `sqlalchemy`, `pydantic` ou `alembic`)
-- [ ] `adapter/config/settings.py` com pydantic-settings (`DATABASE_URL`, `BASE_URL`) e `.env.example` versionado, com o `.env` fora do Git
-- [ ] CI magra em `.github/workflows/ci.yml`: `ruff check`, `ruff format --check`, `mypy src`, `lint-imports`, `pytest`. Não precisa de Docker, roda em segundos, e barra merge desde o primeiro pull request. Os jobs de integração e de imagem entram nas Fases 5 e 6, quando existir o que rodar
-- [ ] Os três ADRs em `docs/adr/`: `0001` o redirect é 302 e não 301; `0002` base 62 sobre a sequence em vez de hash da URL; `0003` sem fila, e o lugar exato onde ela entraria. São decisões **já tomadas** e que não vão mudar — escrevê-las antes do código não gera retrabalho e tira peso da Fase 7
-- **Critério:** os cinco comandos verdes num repositório que ainda não tem uma linha de regra de negócio, e um pull request de verdade que **não consegue ser mergeado enquanto o check estiver vermelho**. O `lint-imports` precisa ser provado **não-vacuoso**: inserir de propósito um `import fastapi` no `domain` e ver o comando reprovar, depois remover.
-- **Documento de aprendizado:** `docs/learning/fase-0-fundacao.md`
+- [x] ~~Ambiente: instalar o uv e registrar o caveat da pasta sincronizada em nuvem~~
+  - **uv 0.12.7** via `winget install --id=astral-sh.uv`, sobre o **Python 3.13.7** que já estava na máquina. O brief pedia 3.12; toda a stack roda em 3.13 sem asterisco, e instalar um segundo interpretador seria custo sem retorno.
+  - **O caveat ficou registrado no `CLAUDE.md`, sem workaround.** A ideia original era apontar `UV_PROJECT_ENVIRONMENT` para fora da árvore, e foi descartada: a variável é global, e um caminho absoluto faria todos os projetos uv da máquina dividirem um venv só. Se o `uv sync` falhar de forma estranha, a primeira hipótese é a sincronização travando arquivo.
+  - **Verificado:** `uv run python -V` devolveu `Python 3.13.7`.
+- [x] ~~`git init` com branch `main`, `.gitattributes` e `.gitignore`~~
+  - **`.gitignore`** cobre `.venv/`, os caches de ferramenta, `.env` e **`docs/learning/`**. **`.gitattributes`** com `* text=auto eol=lf`, para o repositório não guardar CRLF vindo do Windows.
+  - **Verificado:** o commit inicial `12efd5d` levou 13 arquivos, e `.venv/`, `docs/learning/` e `.env` ficaram de fora.
+- [x] ~~Repositório no GitHub com proteção da branch `main` exigindo o check do CI~~
+  - **`wastecoder/python-url-shortener`**, público desde o primeiro commit. Merge restrito a **rebase** (`allow_merge_commit` e `allow_squash_merge` desligados), para o histórico de um-conceito-por-commit sobreviver na `main` em vez de virar uma linha só.
+  - **`enforce_admins: true`, e sem exigência de review.** Review é impossível de satisfazer sozinho; e sem `enforce_admins` o dono do repositório passa por cima com um clique, o que tornaria "o CI barra o merge" uma frase decorativa.
+  - **Ligada depois do primeiro run, nunca antes:** exigir um check que jamais reportou trava todo PR para sempre — inclusive o PR que traria o workflow capaz de produzir aquele status.
+  - **Verificado:** o PR #2, criado de propósito com o lint quebrado, recebeu `Pull request #2 is not mergeable: the base branch policy prohibits the merge` e foi fechado sem merge. Ele fica no repositório como prova.
+  - **Fora deste item:** forçar com `gh pr merge --admin` não foi tentado. Se o `enforce_admins` não estivesse valendo, o commit quebrado entraria na `main` e viraria reversão. A garantia usada é a resposta da própria API ao configurar a proteção: `"enforce_admins": true`.
+- [x] ~~`pyproject.toml` com uv~~
+  - **Nenhum número de versão foi digitado à mão:** as constraints foram escritas pelo `uv add` e o `uv.lock` trava o que foi resolvido — fastapi 0.141.1, starlette 1.6.0, pydantic 2.13.5, sqlalchemy 2.0.52, alembic 1.19.1, psycopg 3.3.4, pytest 9.1.1, ruff 0.16.5, mypy 2.3.1, import-linter 2.14, testcontainers 4.15.0.
+  - **Sem `pytest-asyncio`**, coerente com a decisão de manter o projeto síncrono: os testes de API vão usar `TestClient`.
+  - **Verificado:** `uv sync --locked` verde no runner do GitHub, que é onde essa flag importa — ela falha se o lock estiver defasado em relação ao `pyproject.toml`, em vez de resolver de novo em silêncio.
+- [x] ~~Configuração de ferramenta num arquivo só~~
+  - **Tudo no `pyproject.toml`:** ruff com `line-length = 100` e as regras `E,F,I,UP,B,SIM,C4,RUF`; mypy `strict` sobre `src`; pytest com o marker `integration` registrado e `addopts = -m 'not integration' --strict-markers --import-mode=importlib`; coverage com `branch = true`.
+  - **`--import-mode=importlib`** dispensa `__init__.py` nas pastas de teste e elimina a colisão de nome que apareceria quando existirem `tests/unit/test_link.py` e `tests/integration/test_link.py`.
+  - **Caveat:** o plugin `pydantic.mypy` **não é opcional**. Sem ele, `mypy --strict` acusa um falso `Missing named argument "database_url" for "Settings"`, porque o Pydantic v2 usa `@dataclass_transform` e o mypy sintetiza um `__init__` com todos os campos obrigatórios. Há um comentário no arquivo dizendo isso, porque removê-lo quebra o build de um jeito que não faz sentido nenhum.
+- [x] ~~Esqueleto hexagonal completo, com docstring de camada por pacote~~
+  - **22 pacotes**, cada `__init__.py` documentando a responsabilidade da camada e a regra de dependência dela. É o equivalente dos 21 `package-info.java` do `imagepipe`, e foi escolhido em vez de `.gitkeep` pela mesma razão: é importável, sobrevive ao Git e dá ao import-linter um módulo real em que ancorar os contratos.
+  - **`inbound`/`outbound` em vez de `in`/`out`:** `in` é palavra reservada, e `application.port.in` é erro de sintaxe **no import**, não na criação — a pasta nasceria sem reclamação e explodiria só quando alguém tentasse importá-la.
+  - **Decisão deliberadamente contrária à do `imagepipe`:** lá os pacotes de terceiro nível só nascem junto da primeira classe, porque ficariam meses vazios. Aqui todos estarão preenchidos até a Fase 4, e ver o mapa inteiro vale mais que descobri-lo aos poucos.
+  - **Verificado:** `uv run mypy src` devolveu `Success: no issues found in 23 source files`.
+- [x] ~~`.importlinter` com os três contratos~~
+  - **`Contracts: 3 kept, 0 broken` — e isso, sozinho, não valia nada.** O relatório dizia `Analyzed 22 files, 0 dependencies`: sem nenhum import entre pacotes, os contratos passavam por vacuidade.
+  - **Os dois tipos foram provados:** `import fastapi` dentro de `domain/__init__.py` quebra *The domain imports no framework* e sai com 1; `import url_shortener.adapter` no mesmo arquivo quebra *The dependency arrow points inward* e sai com 1. Ambos revertidos em seguida.
+  - **Caveats:** `include_external_packages = True` é obrigatório para os contratos `forbidden` enxergarem pacotes de terceiros.
+- [x] ~~`adapter/config/settings.py` com pydantic-settings e `.env.example`~~
+  - **Nenhum campo tem default**, de propósito: `DATABASE_URL` ou `BASE_URL` faltando derruba o boot com mensagem clara, em vez de a aplicação subir feliz contra o banco errado. **`extra="forbid"`** transforma uma variável digitada errada no `.env` em erro em vez de silêncio. **`@lru_cache`** em `get_settings`, para o ambiente ser lido uma vez só.
+  - **Verificado:** dois testes — um lendo do ambiente, outro afirmando que a construção falha quando `BASE_URL` some.
+- [x] ~~CI magra em `.github/workflows/ci.yml`~~
+  - **Seis passos, sem Docker, quinze segundos:** `uv sync --locked`, `ruff check`, `ruff format --check`, `mypy src`, `lint-imports`, `pytest`.
+  - **Caveat:** `astral-sh/setup-uv@v10` **não resolve**. A action parou de publicar tag flutuante de major depois da `v7`; da `v8` em diante só existem tags exatas, e o primeiro run morreu em `Unable to resolve action` antes de qualquer passo. Corrigido pinando `@v10.0.1` — que é a prática melhor de qualquer forma. `actions/checkout@v7` continua publicando a tag de major.
+  - **Caveat:** `ruff format` também processa **Markdown**, formatando os blocos de Python dentro dele. Um exemplo mal formatado no README ou num ADR derruba o pipeline; `docs/learning/` escapa porque está no `.gitignore`.
+  - **Verificado:** run `33280203590` verde nos seis passos.
+- [x] ~~Os três ADRs em `docs/adr/`~~
+  - **Escritos antes do código e antes desta fase, junto do commit inicial**, porque são decisões já tomadas e que não vão mudar: `0001-redirect-302`, `0002-base62-sobre-a-sequence` e `0003-sem-fila`. Formato do ShopFlow: Status, Contexto, Decisão, Alternativas consideradas e Consequências, separando as positivas dos custos.
+- **Critério:** ~~os cinco comandos verdes num repositório sem regra de negócio, um pull request que não consegue ser mergeado com o check vermelho, e o `lint-imports` provado não-vacuoso.~~ **Atendido.** PR #1 verde e mergeado por rebase; PR #2, quebrado de propósito, recusado pela política da branch e fechado sem merge; os dois contratos vistos quebrando e voltando.
+- **Documento de aprendizado:** `docs/learning/fase-0-fundacao.md`, com o exercício em `docs/learning/exercicio_fase_0.py`.
 
 ## Fase 1 — Domínio puro
 
