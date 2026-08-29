@@ -36,7 +36,7 @@ files = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not integration' --strict-markers"
+addopts = "-m 'not integration' --strict-markers --import-mode=importlib"
 markers = [
     "integration: precisa de um Docker rodando (Testcontainers)",
 ]
