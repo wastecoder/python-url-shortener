@@ -28,6 +28,8 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
 
 [tool.mypy]
+# Without this plugin, mypy --strict reports a false "missing named argument" on Settings().
+plugins = ["pydantic.mypy"]
 python_version = "3.13"
 strict = true
 files = ["src"]
