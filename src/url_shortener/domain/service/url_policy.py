@@ -39,6 +39,10 @@ _PUNYCODE_PREFIX: Final[str] = "xn--"
 # pattern exists to catch, no URL parser disagrees about what it means.
 _HOSTNAME_LABEL: Final[re.Pattern[str]] = re.compile(r"[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?")
 
+_SITE_LOCAL_IPV6: Final[ipaddress.IPv6Network] = ipaddress.IPv6Network("fec0::/10")
+_IPV4_COMPATIBLE_IPV6: Final[ipaddress.IPv6Network] = ipaddress.IPv6Network("::/96")
+_NAT64_IPV6: Final[ipaddress.IPv6Network] = ipaddress.IPv6Network("64:ff9b::/96")
+
 # A tuple and not a frozenset: `str.endswith` takes a string or a tuple of strings, and mypy
 # refuses anything else.
 _NON_PUBLIC_SUFFIXES: Final[tuple[str, ...]] = (
@@ -167,9 +171,36 @@ def _is_publicly_routable(address: ipaddress.IPv4Address | ipaddress.IPv6Address
     fe80::/10. Asking `is_private` instead would let carrier NAT through, because that range is
     neither private nor global.
 
-    Multicast is the one range `is_global` still calls global, so it is excluded by hand.
+    Two families it does not cover are added by hand. Multicast is the one range `is_global`
+    still calls global. And an IPv6 address can carry an IPv4 address inside it in four different
+    spellings, of which `is_global` only recognises two -- so the embedded address is unwrapped
+    and asked the same question, which is the only answer that does not depend on remembering
+    which spelling was which.
     """
+    if isinstance(address, ipaddress.IPv6Address):
+        if address in _SITE_LOCAL_IPV6:
+            return False
+        embedded = _embedded_ipv4(address)
+        if embedded is not None:
+            return _is_publicly_routable(embedded)
+
     return address.is_global and not address.is_multicast
+
+
+def _embedded_ipv4(address: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    """The IPv4 address an IPv6 address carries inside it, if it carries one.
+
+    Four spellings exist: the IPv4-mapped `::ffff:a.b.c.d`, the deprecated IPv4-compatible
+    `::a.b.c.d`, 6to4 `2002:aabb:ccdd::`, and the NAT64 well-known prefix `64:ff9b::/96`. Only
+    the first and the third are things `is_global` already sees through.
+    """
+    if address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    if address.sixtofour is not None:
+        return address.sixtofour
+    if address in _IPV4_COMPATIBLE_IPV6 or address in _NAT64_IPV6:
+        return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+    return None
 
 
 def _is_hostname(host: str) -> bool:

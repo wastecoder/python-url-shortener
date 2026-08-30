@@ -231,6 +231,12 @@ def test_a_url_with_no_host_is_refused(url: str) -> None:
         "http://[ff02::1]/",
         "http://[::ffff:127.0.0.1]/",
         "http://[::ffff:10.0.0.1]/",
+        # The other three ways an IPv6 address can carry an IPv4 address: the deprecated
+        # compatible form, 6to4, and the NAT64 well-known prefix. Plus deprecated site-local.
+        "http://[::127.0.0.1]/",
+        "http://[2002:7f00:1::]/",
+        "http://[64:ff9b::7f00:1]/",
+        "http://[fec0::1]/",
     ],
 )
 def test_an_address_that_is_not_publicly_routable_is_refused(url: str) -> None:
