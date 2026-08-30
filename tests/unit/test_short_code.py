@@ -100,3 +100,15 @@ def test_a_short_code_is_frozen_and_usable_as_a_dictionary_key() -> None:
         code.value = "0000002"  # type: ignore[misc]
 
     assert {code: "first"}[ShortCode("0000001")] == "first"
+
+
+@pytest.mark.parametrize("value", [" 000001", "000001	", "000 001"])
+def test_a_code_is_refused_rather_than_trimmed_into_shape(value: str) -> None:
+    """
+    Given a seven-character string padded with blanks instead of with zeros,
+    when a ShortCode is built from it,
+    then construction fails. Nothing here trims: a code that could be cleaned up into a valid
+    one would let two different strings resolve the same link.
+    """
+    with pytest.raises(ValueError, match="base 62 alphabet"):
+        ShortCode(value)
