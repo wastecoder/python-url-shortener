@@ -155,9 +155,9 @@ code can be computed in the pure domain and the row is inserted with `code NOT N
 statement. The alphabet is `0-9a-zA-Z` (62 chars); `62^7` is roughly `3.52e12`. Sequence gaps from
 rolled-back transactions are expected and harmless.
 
-**2. Codes are fixed-length 7, so reserved words cannot be generated.** `docs`, `redoc`,
-`openapi.json`, `health` and `links` are all shorter than 7 characters, which makes collision
-structurally impossible. The reserved-code list in `domain.service.url_policy` **still exists** as
+**2. Codes are fixed-length 7, so reserved words cannot be generated.** None of `docs`, `redoc`,
+`openapi.json`, `health` and `links` is exactly 7 characters long — four are shorter and
+`openapi.json` is 12 — which makes collision structurally impossible. The reserved-code list in `domain.service.url_policy` **still exists** as
 a guard for any future path that *chooses* a code instead of generating one (custom alias, import,
 bug in the generator). It is a safety net, not the mechanism — and knowing the difference is the
 point.

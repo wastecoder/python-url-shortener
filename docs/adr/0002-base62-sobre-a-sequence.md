@@ -23,10 +23,10 @@ A `BIGSERIAL` do PostgreSQL **é** o gerador de id: é transacional, é de graç
 id é lido da sequence antes do insert, o que permite calcular o código no domínio puro e inserir a
 linha com `code NOT NULL` num único statement.
 
-Como todo código tem 7 caracteres, nenhuma das palavras reservadas da API (`docs`, `redoc`,
-`openapi.json`, `health`, `links`, todas mais curtas) pode ser gerada. A lista de códigos
-reservados continua existindo como rede de segurança para o alias customizado do V2, não como
-mecanismo.
+Como todo código tem exatamente 7 caracteres, nenhuma das palavras reservadas da API (`docs`,
+`redoc`, `openapi.json`, `health`, `links`) pode ser gerada — nenhuma delas tem exatamente 7
+caracteres: quatro são mais curtas e `openapi.json` tem 12. A lista de códigos reservados continua
+existindo como rede de segurança para o alias customizado do V2, não como mecanismo.
 
 ## Alternativas consideradas
 
