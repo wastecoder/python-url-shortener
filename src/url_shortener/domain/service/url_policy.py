@@ -21,6 +21,14 @@ MAX_TARGET_URL_LENGTH: Final[int] = 2048
 
 ALLOWED_SCHEMES: Final[frozenset[str]] = frozenset({"http", "https"})
 
+# The paths the API answers on itself. Nothing in V1 can collide with them: a generated code has
+# exactly seven characters and none of these does, so the list is a safety net and not the
+# mechanism. It exists for the day a code is *chosen* instead of generated -- a custom alias, an
+# import, a bug in the generator -- and it is cheaper to keep it now than to remember it then.
+RESERVED_CODES: Final[frozenset[str]] = frozenset(
+    {"docs", "redoc", "openapi.json", "health", "links"}
+)
+
 _NON_PUBLIC_HOSTS: Final[frozenset[str]] = frozenset({"localhost"})
 
 # A tuple and not a frozenset: `str.endswith` takes a string or a tuple of strings, and mypy
@@ -115,6 +123,15 @@ def validate_target_url(url: str) -> None:
             RejectionReason.NON_PUBLIC_HOST,
             f"the host {host!r} can only name something on the caller's own network",
         )
+
+
+def is_reserved_code(code: str) -> bool:
+    """Whether `code` is a path the API itself owns.
+
+    It is lower-cased before the comparison because a route is not case sensitive, while a code
+    is: `aaaaaaa` and `AAAAAAA` are two different links, but `/DOCS` and `/docs` are one route.
+    """
+    return code.lower() in RESERVED_CODES
 
 
 def _parse_ip_literal(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
