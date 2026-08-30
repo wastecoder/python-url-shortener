@@ -4,7 +4,13 @@ import pytest
 
 from url_shortener.domain.exception.invalid_target_url_error import InvalidTargetUrlError
 from url_shortener.domain.exception.rejection_reason import RejectionReason
-from url_shortener.domain.service.url_policy import MAX_TARGET_URL_LENGTH, validate_target_url
+from url_shortener.domain.service.base62 import CODE_LENGTH
+from url_shortener.domain.service.url_policy import (
+    MAX_TARGET_URL_LENGTH,
+    RESERVED_CODES,
+    is_reserved_code,
+    validate_target_url,
+)
 
 
 @pytest.mark.parametrize(
@@ -264,3 +270,43 @@ def test_the_refusal_names_what_was_wrong() -> None:
         validate_target_url("file:///etc/passwd")
 
     assert "file" in caught.value.message
+
+
+def test_the_reserved_codes_are_the_paths_the_api_owns() -> None:
+    """
+    Given the list of reserved codes,
+    when it is inspected,
+    then it holds exactly the paths the API answers on itself.
+    """
+    assert frozenset({"docs", "redoc", "openapi.json", "health", "links"}) == RESERVED_CODES
+
+
+@pytest.mark.parametrize("code", sorted(RESERVED_CODES))
+def test_no_reserved_code_has_the_length_of_a_generated_one(code: str) -> None:
+    """
+    Given a reserved code,
+    when its length is compared to the length of a generated code,
+    then they differ, which is what makes the collision structurally impossible rather than
+    merely unlikely: the list is a safety net for a future path that chooses a code.
+    """
+    assert len(code) != CODE_LENGTH
+
+
+@pytest.mark.parametrize("code", ["docs", "DOCS", "Health", "openapi.json"])
+def test_a_reserved_code_is_recognised_whatever_its_case(code: str) -> None:
+    """
+    Given a reserved word in any casing,
+    when the code is checked,
+    then it is reported as reserved, because a route is not case sensitive the way a code is.
+    """
+    assert is_reserved_code(code) is True
+
+
+@pytest.mark.parametrize("code", ["0000001", "ZZZZZZZ", "docsdoc", "healths"])
+def test_a_code_the_generator_can_produce_is_never_reserved(code: str) -> None:
+    """
+    Given a seven-character code,
+    when it is checked,
+    then it is not reserved, including the ones that merely start like a reserved word.
+    """
+    assert is_reserved_code(code) is False
