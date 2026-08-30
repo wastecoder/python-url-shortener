@@ -115,8 +115,11 @@ def test_the_rejection_reasons_are_a_hyphenated_wire_taxonomy() -> None:
     when the values are inspected,
     then each is lower case and hyphenated, and no two members share a value.
     """
-    values = [reason.value for reason in RejectionReason]
+    # Read through __members__ and not by iterating the enum: two members declared with the same
+    # value are not two members at all, they are one member and an alias, and iteration shows
+    # only the first -- which would make an assertion about duplicates unable to ever fail.
+    values = [member.value for member in RejectionReason.__members__.values()]
 
-    assert len(set(values)) == len(values)
+    assert len(set(values)) == len(RejectionReason.__members__)
     assert all(value == value.lower() for value in values)
     assert all("_" not in value for value in values)

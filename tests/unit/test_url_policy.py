@@ -40,7 +40,8 @@ def test_a_public_http_url_is_accepted(url: str) -> None:
     when the policy is applied,
     then it is accepted and nothing about it is rewritten.
     """
-    assert validate_target_url(url) is None
+    # The policy answers by staying silent: it returns nothing, and accepting is not raising.
+    validate_target_url(url)
 
 
 def test_the_length_limit_is_the_agreed_one() -> None:
@@ -61,7 +62,7 @@ def test_a_url_at_the_length_limit_is_still_accepted() -> None:
     url = "https://example.com/" + "a" * (MAX_TARGET_URL_LENGTH - len("https://example.com/"))
 
     assert len(url) == MAX_TARGET_URL_LENGTH
-    assert validate_target_url(url) is None
+    validate_target_url(url)
 
 
 def test_a_url_past_the_length_limit_is_refused() -> None:

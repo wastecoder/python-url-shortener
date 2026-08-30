@@ -1,12 +1,26 @@
 """A click is written once, never read back one by one, and never updated."""
 
 import dataclasses
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, tzinfo
 from ipaddress import ip_address
 
 import pytest
 
 from url_shortener.domain.model.click import Click
+
+
+class UnknownOffset(tzinfo):
+    """A timezone that does not know its own offset, which is a legal thing for one to be."""
+
+    def utcoffset(self, dt: datetime | None) -> timedelta | None:
+        return None
+
+    def tzname(self, dt: datetime | None) -> str | None:
+        return None
+
+    def dst(self, dt: datetime | None) -> timedelta | None:
+        return None
+
 
 OCCURRED_AT = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
 
@@ -52,7 +66,7 @@ def test_a_click_is_built_by_keyword_only() -> None:
     then construction fails, so the two can never be transposed in silence.
     """
     with pytest.raises(TypeError):
-        Click(1, OCCURRED_AT, "curl/8.5.0", "https://example.com/")  # type: ignore[misc]
+        Click(1, OCCURRED_AT, "curl/8.5.0", "https://example.com/")  # type: ignore[call-arg]
 
 
 @pytest.mark.parametrize("link_id", [0, -1])
@@ -90,3 +104,26 @@ def test_a_click_has_no_id_of_its_own() -> None:
         "referer",
         "ip",
     ]
+
+
+def test_a_timezone_that_does_not_know_its_offset_is_refused() -> None:
+    """
+    Given a datetime carrying a timezone whose offset is unknown,
+    when a Click is built with it,
+    then construction fails, for the same reason it does on a link.
+    """
+    with pytest.raises(ValueError, match="timezone aware"):
+        Click(link_id=1, occurred_at=datetime(2026, 8, 30, 12, 0, tzinfo=UnknownOffset()))
+
+
+def test_a_click_is_frozen() -> None:
+    """
+    Given a recorded click,
+    when one of its fields is assigned,
+    then the assignment fails: a click is written once and never touched again, and the model
+    says so rather than trusting every caller to remember it.
+    """
+    click = Click(link_id=1, occurred_at=OCCURRED_AT)
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        click.link_id = 2  # type: ignore[misc]

@@ -1,12 +1,26 @@
 """A link knows its id, its code, where it points and when it was created."""
 
 import dataclasses
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 
 import pytest
 
 from url_shortener.domain.model.link import Link
 from url_shortener.domain.model.short_code import ShortCode
+
+
+class UnknownOffset(tzinfo):
+    """A timezone that does not know its own offset, which is a legal thing for one to be."""
+
+    def utcoffset(self, dt: datetime | None) -> timedelta | None:
+        return None
+
+    def tzname(self, dt: datetime | None) -> str | None:
+        return None
+
+    def dst(self, dt: datetime | None) -> timedelta | None:
+        return None
+
 
 CODE = ShortCode("0000001")
 CREATED_AT = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
@@ -33,7 +47,7 @@ def test_a_link_is_built_by_keyword_only() -> None:
     then construction fails, so no caller can silently transpose two of them.
     """
     with pytest.raises(TypeError):
-        Link(1, CODE, "https://example.com", CREATED_AT)  # type: ignore[misc]
+        Link(1, CODE, "https://example.com", CREATED_AT)  # type: ignore[call-arg]
 
 
 @pytest.mark.parametrize("link_id", [0, -1])
@@ -114,3 +128,19 @@ def test_a_link_does_not_carry_the_hash_of_its_url() -> None:
         "url",
         "created_at",
     ]
+
+
+def test_a_timezone_that_does_not_know_its_offset_is_refused() -> None:
+    """
+    Given a datetime carrying a timezone whose offset is unknown,
+    when a Link is built with it,
+    then construction fails. Having a timezone attached is not the same as naming an instant,
+    and it is the offset, not the presence of a timezone, that the check asks about.
+    """
+    with pytest.raises(ValueError, match="timezone aware"):
+        Link(
+            id=1,
+            code=CODE,
+            url="https://example.com",
+            created_at=datetime(2026, 8, 30, 12, 0, tzinfo=UnknownOffset()),
+        )
