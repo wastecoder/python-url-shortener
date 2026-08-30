@@ -11,6 +11,7 @@ own private network, and a laundry for links whose real destination the reader c
 """
 
 import ipaddress
+import re
 from typing import Final
 from urllib.parse import urlsplit
 
@@ -30,6 +31,13 @@ RESERVED_CODES: Final[frozenset[str]] = frozenset(
 )
 
 _NON_PUBLIC_HOSTS: Final[frozenset[str]] = frozenset({"localhost"})
+
+_PUNYCODE_PREFIX: Final[str] = "xn--"
+
+# One label of a hostname: letters, digits, hyphen and underscore, never starting or ending with
+# a hyphen. The underscore is not legal in a hostname either, but unlike the characters this
+# pattern exists to catch, no URL parser disagrees about what it means.
+_HOSTNAME_LABEL: Final[re.Pattern[str]] = re.compile(r"[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?")
 
 # A tuple and not a frozenset: `str.endswith` takes a string or a tuple of strings, and mypy
 # refuses anything else.
@@ -87,8 +95,10 @@ def validate_target_url(url: str) -> None:
         )
 
     # Absence, not emptiness: "https://@example.com/" has an empty user name, which is still
-    # someone writing credentials in front of the host.
-    if parts.username is not None or parts.password is not None:
+    # someone writing credentials in front of the host. Testing the user name alone is enough --
+    # a password cannot be parsed without one, so ":secret@host" also arrives with a user name of
+    # "" rather than of None.
+    if parts.username is not None:
         raise InvalidTargetUrlError(
             RejectionReason.CREDENTIALS_IN_URL,
             "the URL carries credentials in front of the host",
@@ -118,6 +128,12 @@ def validate_target_url(url: str) -> None:
             )
         return
 
+    if not _is_hostname(host):
+        raise InvalidTargetUrlError(
+            RejectionReason.FORBIDDEN_CHARACTER,
+            f"the host {host!r} is not a hostname",
+        )
+
     if _is_non_public_hostname(host):
         raise InvalidTargetUrlError(
             RejectionReason.NON_PUBLIC_HOST,
@@ -145,14 +161,29 @@ def _parse_ip_literal(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Addres
 def _is_publicly_routable(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """Whether the address is one the public internet can route to.
 
-    `is_global` is the whole check and not four of them: it already excludes loopback, 0.0.0.0,
+    `is_global` carries most of the check on its own: it already excludes loopback, 0.0.0.0,
     10/8, 172.16/12, 192.168/16, link-local 169.254/16 -- and with it the cloud metadata address
-    169.254.169.254 -- carrier NAT 100.64/10, 240/4, the broadcast address, ::1, ::, fc00::/7,
-    fe80::/10, and the IPv4-mapped form of every one of them. Asking `is_private` instead would
-    let carrier NAT through, because that range is neither private nor global. Multicast is the
-    one range `is_global` still calls global, so it is excluded by hand.
+    169.254.169.254 -- carrier NAT 100.64/10, 240/4, the broadcast address, ::1, ::, fc00::/7 and
+    fe80::/10. Asking `is_private` instead would let carrier NAT through, because that range is
+    neither private nor global.
+
+    Multicast is the one range `is_global` still calls global, so it is excluded by hand.
     """
     return address.is_global and not address.is_multicast
+
+
+def _is_hostname(host: str) -> bool:
+    """Whether the host is spelled the way a hostname is spelled.
+
+    This exists because the parser used here follows RFC 3986 while every browser follows the
+    WHATWG URL Standard, and the two disagree about characters such as the backslash: to this
+    module `http://127.0.0.1\\` has the host `127.0.0.1\\`, which is neither an address nor a
+    known local name and would sail through; to a browser the host is `127.0.0.1` and the rest is
+    a path. Percent-encoded hosts are the same trick with a different character. Rather than
+    chase each spelling, anything that is not a plain hostname is refused here -- which is also
+    what makes the check above trustworthy, since it only ever sees hosts nobody can respell.
+    """
+    return all(_HOSTNAME_LABEL.fullmatch(label) is not None for label in host.split("."))
 
 
 def _is_non_public_hostname(host: str) -> bool:
@@ -160,9 +191,12 @@ def _is_non_public_hostname(host: str) -> bool:
     if host in _NON_PUBLIC_HOSTS or host.endswith(_NON_PUBLIC_SUFFIXES):
         return True
 
-    # A single-label host ("intranet") names something local, and a last label made only of digits
-    # is an address written in a form the address parser does not read but a browser does
-    # ("2130706433" and "127.1" both reach 127.0.0.1). A real top-level domain is never all
-    # digits, so refusing both costs nothing that a public URL needs.
+    # A single-label host ("intranet") names something local. Everything else is decided by the
+    # last label, which on the public internet is always a top-level domain: letters, or a
+    # punycode label. Refusing the rest is what catches an address written in a form the address
+    # parser does not read but a browser does -- "127.1", "0x7f.0x0.0x0.0x1" and "0177.0.0.1" all
+    # reach 127.0.0.1, and none of them ends in something that could be a top-level domain.
     _, dot, top_level = host.rpartition(".")
-    return not dot or top_level.isdigit()
+    if not dot:
+        return True
+    return not (top_level.isalpha() or top_level.startswith(_PUNYCODE_PREFIX))

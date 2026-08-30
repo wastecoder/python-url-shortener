@@ -21,7 +21,13 @@ from url_shortener.domain.service.url_policy import (
         "https://example.com:8443/path",
         "https://example.com./",
         "https://localhost.example.com/",
+        "https://sub.domain.example.co.uk/x",
         "https://xn--e1afmkfd.xn--p1ai/",
+        "http://my-site.example.com/",
+        "http://under_score.example.com/",
+        # A public name that merely starts like an address. Nothing is resolved here, so the
+        # question this row settles is whether the check reads the last label or the first.
+        "http://127.0.0.1.example.com/",
         "http://8.8.8.8/",
         "http://172.32.0.1/",
         "http://[2001:4860:4860::8888]/",
@@ -35,6 +41,15 @@ def test_a_public_http_url_is_accepted(url: str) -> None:
     then it is accepted and nothing about it is rewritten.
     """
     assert validate_target_url(url) is None
+
+
+def test_the_length_limit_is_the_agreed_one() -> None:
+    """
+    Given the limit the two tests below are written against,
+    when it is inspected,
+    then it is 2048, so neither of them can pass by measuring against a changed constant.
+    """
+    assert MAX_TARGET_URL_LENGTH == 2048
 
 
 def test_a_url_at_the_length_limit_is_still_accepted() -> None:
@@ -245,6 +260,8 @@ def test_an_address_that_is_not_publicly_routable_is_refused(url: str) -> None:
         "http://2130706433/",
         "http://0x7f000001/",
         "http://127.1/",
+        "http://0x7f.0x0.0x0.0x1/",
+        "http://0177.0.0.1/",
     ],
 )
 def test_a_hostname_that_can_only_be_local_is_refused(url: str) -> None:
@@ -310,3 +327,31 @@ def test_a_code_the_generator_can_produce_is_never_reserved(code: str) -> None:
     then it is not reserved, including the ones that merely start like a reserved word.
     """
     assert is_reserved_code(code) is False
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1\\",
+        "http://169.254.169.254\.example.com/",
+        "http://localhost\.example.com/",
+        "http://%6c%6fcalhost.example.com/",
+        "http://exa<mple.com/",
+        "http://ex|ample.com/",
+        "http://-example.com/",
+        "http://example-.com/",
+        "http://a..b.com/",
+    ],
+)
+def test_a_host_that_is_not_spelled_like_a_hostname_is_refused(url: str) -> None:
+    """
+    Given a host carrying a character no hostname has,
+    when the policy is applied,
+    then it is refused. The backslash rows are the reason this check exists: the parser used
+    here follows one standard and every browser follows another, so "127.0.0.1\\" is a whole
+    host to this module and just the host "127.0.0.1" to whoever clicks the link.
+    """
+    with pytest.raises(InvalidTargetUrlError) as caught:
+        validate_target_url(url)
+
+    assert caught.value.reason is RejectionReason.FORBIDDEN_CHARACTER
