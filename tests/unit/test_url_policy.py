@@ -340,8 +340,8 @@ def test_a_code_the_generator_can_produce_is_never_reserved(code: str) -> None:
     "url",
     [
         "http://127.0.0.1\\",
-        "http://169.254.169.254\.example.com/",
-        "http://localhost\.example.com/",
+        "http://169.254.169.254\\.example.com/",
+        "http://localhost\\.example.com/",
         "http://%6c%6fcalhost.example.com/",
         "http://exa<mple.com/",
         "http://ex|ample.com/",
