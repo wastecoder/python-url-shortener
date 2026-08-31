@@ -113,6 +113,22 @@ class InMemoryClickRepository:
         return tuple(self._recorded)
 
 
+class StubHealthProbe:
+    """The health probe, answering whatever the test needs it to answer.
+
+    `reachable` is public and writable so that one client can walk both branches of `/health`
+    within a single test -- which is the only way to assert that the endpoint's answer tracks the
+    database rather than being decided once at startup.
+    """
+
+    def __init__(self, *, reachable: bool = True) -> None:
+        self.reachable = reachable
+
+    def is_reachable(self) -> bool:
+        """Whatever this stub was last told to report."""
+        return self.reachable
+
+
 class FixedClock:
     """A clock stuck at one instant, so a test can assert the exact value that was written."""
 
@@ -140,6 +156,7 @@ if TYPE_CHECKING:
     #
     # There is no equivalent block for the driving ports: each use case test builds its subject
     # through a helper annotated with the inbound port, which is the same proof for free.
+    from url_shortener.adapter.web.health_probe import HealthProbe
     from url_shortener.application.port.outbound.click_repository import ClickRepository
     from url_shortener.application.port.outbound.clock import Clock
     from url_shortener.application.port.outbound.link_repository import LinkRepository
@@ -147,3 +164,7 @@ if TYPE_CHECKING:
     _links: LinkRepository = InMemoryLinkRepository()
     _clicks: ClickRepository = InMemoryClickRepository()
     _clock: Clock = FixedClock(datetime(2026, 1, 1, tzinfo=UTC))
+    # `HealthProbe` is not a driven port -- it lives in the web adapter, because `/health` is not a
+    # use case. The proof is the same shape all the same, and it is the only kind that means
+    # anything for a `Protocol` nothing inherits from.
+    _probe: HealthProbe = StubHealthProbe()

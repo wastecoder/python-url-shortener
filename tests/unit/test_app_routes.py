@@ -138,7 +138,7 @@ def test_the_documented_responses_are_the_ones_the_api_can_send(app: FastAPI) ->
     assert sorted(paths["/links"]["post"]["responses"]) == ["200", "201", "400", "422"]
     assert sorted(paths["/links/{code}"]["get"]["responses"]) == ["200", "404"]
     assert sorted(paths["/{code}"]["get"]["responses"]) == ["302", "404"]
-    assert sorted(paths["/health"]["get"]["responses"]) == ["200"]
+    assert sorted(paths["/health"]["get"]["responses"]) == ["200", "503"]
 
 
 def test_every_documented_error_body_is_a_problem_document(app: FastAPI) -> None:
