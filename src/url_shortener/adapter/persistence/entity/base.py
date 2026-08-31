@@ -29,8 +29,10 @@ class Base(DeclarativeBase):
 
     Two tables hang from it and nothing else. It is deliberately never used to build a schema --
     `Base.metadata.create_all()` appears nowhere in this project, not even in a test, because a
-    schema created from the models is a schema no migration was ever run against. The tests run the
-    same migrations production runs, which is the only way the migrations get tested at all.
+    schema created from the models is a schema no migration was ever run against. From Fase 5 the
+    integration tests will run the same migrations production runs, which is the only way the
+    migrations get tested at all; today the equivalence is checked by hand, with `alembic check`
+    against a live database.
     """
 
     metadata = MetaData(naming_convention=NAMING_CONVENTION)

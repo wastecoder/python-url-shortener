@@ -17,11 +17,17 @@ _logger = logging.getLogger(__name__)
 class DatabaseProbe:
     """`SELECT 1`, on a connection of its own.
 
-    **Its own connection, and never the request's session.** The health check must not be enlisted
-    in the transaction it reports on -- it would then fail whenever the pool is exhausted, which is
-    a fact about load and not about the database's health. It also has to be acquirable without
-    failing, or the 503 branch becomes unreachable: a dependency whose *setup* raises does so before
-    the controller body runs, and lands in the generic 500 handler instead.
+    **Its own engine, and never the request's session.** Two reasons, and the second was measured
+    rather than assumed. The first: the health check must not be enlisted in the transaction it
+    reports on. The second: a session draws from the request pool, and a checkout from an exhausted
+    pool does not fail fast -- it *waits*, up to `pool_timeout` -- so a session-backed check would
+    hang and then blame the database for this process being busy. The engine handed in here is
+    poolless for exactly that reason.
+
+    What is **not** a reason, although it reads like one and was written here first: that acquiring
+    a session against a dead database would fail before the controller ran and be answered as a
+    500. It would not. `sessionmaker.begin()` does not connect, so the failure would land on
+    `execute`, inside the controller body, where it could have been caught.
 
     It does not inherit from `HealthProbe`. That protocol lives in the web adapter, and importing it
     here would tie persistence to the shape of a controller; conformance is structural, and
@@ -40,9 +46,11 @@ class DatabaseProbe:
         taxonomy nobody reads, and catching `Exception` would swallow bugs in this method.
 
         The cause goes to the log, not to the response. `exc_info=unreachable` rather than
-        `logger.exception()`: the two are equivalent here, on the thread that caught it, and the
-        explicit form is the one that stays correct if this is ever called from somewhere else --
-        which is a mistake this codebase has already had to diagnose once, in the 500 handler.
+        `logger.exception()`, and the two are **not** interchangeable: `logger.exception` also
+        forces the level to ERROR, and a dependency being out is a WARNING here -- the endpoint
+        answered, correctly, with the answer it exists to give. Passing `exc_info` explicitly also
+        stays correct if this is ever called off the thread that caught the error, which is a
+        mistake this codebase has already had to diagnose once, in the 500 handler.
         """
         try:
             with self._engine.connect() as connection:
