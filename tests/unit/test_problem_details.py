@@ -19,12 +19,14 @@ from url_shortener.adapter.web.handler.problem_details import (
     PROBLEM_MEDIA_TYPE,
     register_exception_handlers,
 )
+from url_shortener.adapter.web.handler.service_unavailable_error import ServiceUnavailableError
 from url_shortener.domain.exception.invalid_target_url_error import InvalidTargetUrlError
 from url_shortener.domain.exception.link_not_found_error import LinkNotFoundError
 from url_shortener.domain.exception.rejection_reason import RejectionReason
 
 REFUSAL_DETAIL = "the host 'localhost' can only name something on the caller's own network"
 UNEXPECTED_DETAIL = "the database connection went away"
+DEPENDENCY = "database"
 
 
 class _Payload(BaseModel):
@@ -51,6 +53,10 @@ def _app() -> FastAPI:
     @app.get("/boom")
     def _boom() -> None:
         raise RuntimeError(UNEXPECTED_DETAIL)
+
+    @app.get("/down")
+    def _down() -> None:
+        raise ServiceUnavailableError(DEPENDENCY)
 
     return app
 
@@ -218,7 +224,13 @@ def test_an_unexpected_failure_is_recorded_on_the_server(
 
 @pytest.mark.parametrize(
     ("method", "path"),
-    [("GET", "/refused"), ("GET", "/missing"), ("POST", "/validated"), ("GET", "/boom")],
+    [
+        ("GET", "/refused"),
+        ("GET", "/missing"),
+        ("POST", "/validated"),
+        ("GET", "/boom"),
+        ("GET", "/down"),
+    ],
 )
 def test_every_failure_is_served_as_a_problem_document(
     bare_client: TestClient, method: str, path: str
@@ -232,3 +244,40 @@ def test_every_failure_is_served_as_a_problem_document(
 
     assert response.status_code >= HTTPStatus.BAD_REQUEST
     assert response.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
+
+
+def test_a_dependency_that_is_down_answers_503_naming_it(bare_client: TestClient) -> None:
+    """
+    Given a service whose database is not answering,
+    when the endpoint that reports on it is asked,
+    then the answer is 503 in the same envelope, saying which dependency is out.
+
+    503 rather than 500, and the split is the point: 500 means this API has a bug, 503 means it is
+    working and something it needs is not. A load balancer can act on the second one, and only the
+    first is worth waking somebody for.
+    """
+    response = bare_client.get("/down")
+
+    assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+    assert response.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
+    assert response.json() == {
+        "type": "service-unavailable",
+        "title": "The service cannot serve requests right now",
+        "status": 503,
+        "detail": "The database this service depends on is not answering.",
+        "instance": "/down",
+    }
+
+
+def test_the_unavailable_body_carries_no_configuration(bare_client: TestClient) -> None:
+    """
+    Given the 503 body,
+    when it is read,
+    then it names the dependency and nothing about how that dependency is reached -- no DSN, no
+    host, no driver message. What is down is worth telling; where it lives is not.
+    """
+    body = bare_client.get("/down").text
+
+    assert DEPENDENCY in body
+    for secret in ("postgresql", "psycopg", "localhost", "5432", "password"):
+        assert secret not in body, secret
