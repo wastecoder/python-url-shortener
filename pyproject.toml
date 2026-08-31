@@ -32,7 +32,14 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
 plugins = ["pydantic.mypy"]
 python_version = "3.13"
 strict = true
-files = ["src"]
+# `tests` is checked too, and not as a nicety: `tests/fakes.py` is where the in-memory stand-ins
+# are declared to satisfy the driven ports, and a declaration no type checker reads proves nothing.
+files = ["src", "tests"]
+# Neither line below is optional. `tests/` has no `__init__.py`, because `--import-mode=importlib`
+# means pytest does not need one, so mypy has to be told which directories are package roots. Left
+# alone it maps the same file to two module names and stops before checking anything.
+mypy_path = ["src", "."]
+explicit_package_bases = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

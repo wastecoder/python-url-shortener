@@ -109,7 +109,10 @@ required below**.
 - **`inbound`/`outbound`, not `in`/`out`.** `in` is a reserved keyword — `application.port.in` is a
   syntax error on import. This is the only intentional deviation from the Java package names.
 - **Ports are `typing.Protocol`, not ABCs.** Adapters do not inherit from them; mypy verifies the
-  shape structurally. This keeps the adapter free of any import from `application`.
+  shape structurally. This keeps the adapter free of any import from `application`. Structural
+  conformance is only worth something if a type checker actually reads the implementation, so
+  `mypy` covers `tests/` as well as `src/` — **never pass it an explicit path**, which overrides
+  `files` and silently drops the test fakes from the check.
 - **The `...Impl` suffix is kept** for use-case and repository implementations. It is un-Pythonic
   and intentional: it mirrors the Java project this layout comes from and makes the port/adapter
   pair obvious at a glance.
@@ -268,7 +271,7 @@ never activate `.venv` manually, and never call `pip` directly.
 | Coverage | `uv run pytest --cov=src/url_shortener --cov-report=term-missing` |
 | Lint | `uv run ruff check .` — fix: `uv run ruff check --fix .` |
 | Format | `uv run ruff format .` |
-| Types | `uv run mypy src` |
+| Types | `uv run mypy` — reads `files` from `pyproject.toml`: `src` **and** `tests` |
 | Architecture contracts | `uv run lint-imports` |
 | Apply migrations | `uv run alembic upgrade head` |
 | New migration | `uv run alembic revision --autogenerate -m "<message>"` |
