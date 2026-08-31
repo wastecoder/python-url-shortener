@@ -4,11 +4,12 @@ This module is the only place in the codebase that pairs an error with a status 
 exceptions know nothing about HTTP -- that is what makes them testable with no framework running
 -- and the mapping has to live somewhere the outside world can read.
 
-Five handlers, and the last two are the ones that make "every error of this API looks the same"
-true rather than nearly true. Without the `HTTPException` handler a `POST /health` answers
+Six handlers. Two of them exist to make "every error of this API looks the same" true rather than
+nearly true: without the `HTTPException` handler a `POST /health` answers
 `{"detail": "Method Not Allowed"}` in `application/json`, and without the `Exception` handler an
 unexpected failure answers Starlette's plain-text `Internal Server Error`. Both are ten-second
-curl commands away from contradicting the claim.
+curl commands away from contradicting the claim. The sixth, `ServiceUnavailableError`, is the
+only one raised about this service rather than about a request. ADR-0008.
 """
 
 import logging
@@ -23,6 +24,7 @@ from starlette.responses import JSONResponse, Response
 
 from url_shortener.adapter.web.dto.response.problem_response import FieldError, ProblemResponse
 from url_shortener.adapter.web.handler.problem_type import ProblemType
+from url_shortener.adapter.web.handler.service_unavailable_error import ServiceUnavailableError
 from url_shortener.domain.exception.invalid_target_url_error import InvalidTargetUrlError
 from url_shortener.domain.exception.link_not_found_error import LinkNotFoundError
 
@@ -34,21 +36,29 @@ _logger = logging.getLogger(__name__)
 def register_exception_handlers(app: FastAPI) -> None:
     """Install every handler on the app, before any router is included.
 
-    Four of the five calls carry a narrow `type: ignore`, and the alternative is worse. Starlette
+    Five of the six calls carry a narrow `type: ignore`, and the alternative is worse. Starlette
     types a handler as `Callable[[Request, Exception], Response]`; parameters are contravariant, so
     a handler that precisely declares the exception it handles is not assignable to that. Writing
     `exc: Exception` and casting inside would silence the checker in the one place it is doing
     useful work -- checking each handler's body against the real exception type -- so the
     imprecision is kept at the registration line, where it is visible and explained.
 
-    The fifth needs none: `_handle_unexpected` takes `exc: Exception`, which is exactly the type
-    Starlette declares. Removing the four proves they are load-bearing -- `uv run mypy` then
-    reports four errors, on those four lines and on no others.
+    The sixth needs none: `_handle_unexpected` takes `exc: Exception`, which is exactly the type
+    Starlette declares. Removing the five proves they are load-bearing -- `uv run mypy` then
+    reports five errors, on those five lines and on no others.
+
+    One registration is written across four lines rather than one, and only because the single
+    line would be 101 columns wide. mypy blames the argument, so the suppression sits on the
+    argument; it is the same imprecision in the same place, wrapped.
     """
     app.add_exception_handler(InvalidTargetUrlError, _handle_invalid_target_url)  # type: ignore[arg-type]
     app.add_exception_handler(LinkNotFoundError, _handle_link_not_found)  # type: ignore[arg-type]
     app.add_exception_handler(RequestValidationError, _handle_request_validation)  # type: ignore[arg-type]
     app.add_exception_handler(HTTPException, _handle_http_exception)  # type: ignore[arg-type]
+    app.add_exception_handler(
+        ServiceUnavailableError,
+        _handle_service_unavailable,  # type: ignore[arg-type]
+    )
     app.add_exception_handler(Exception, _handle_unexpected)
 
 
@@ -150,6 +160,29 @@ def _handle_http_exception(request: Request, exc: HTTPException) -> Response:
             instance=request.url.path,
         ),
         headers=exc.headers,
+    )
+
+
+def _handle_service_unavailable(request: Request, exc: ServiceUnavailableError) -> Response:
+    """503: this API is up, and something it needs is not.
+
+    The one status in this API that says "come back later" rather than "your request was wrong" or
+    "we have a bug". It is answered by `/health` and by nothing else: a caller who hits the database
+    being down on `POST /links` gets a 500, because from that route's point of view the request
+    failed for a reason nobody can name yet. ADR-0008.
+
+    `detail` names the dependency and stops there. That is more than the 500 says, and deliberately
+    so -- the whole job of this endpoint is to report which of its dependencies is out -- but it is
+    still a word chosen by this codebase, never a driver message or a connection string.
+    """
+    return _problem(
+        ProblemResponse(
+            type=ProblemType.SERVICE_UNAVAILABLE,
+            title="The service cannot serve requests right now",
+            status=HTTPStatus.SERVICE_UNAVAILABLE,
+            detail=f"The {exc.dependency} this service depends on is not answering.",
+            instance=request.url.path,
+        )
     )
 
 

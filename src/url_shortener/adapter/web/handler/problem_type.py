@@ -16,13 +16,16 @@ class ProblemType(StrEnum):
     404 on a path no route matched -- so its status and its title come from the exception. Giving
     the enum a status column would mean one member carrying a hole, or a lie.
 
-    `INTERNAL_ERROR` and `HTTP_ERROR` are not the same thing and the split is worth the extra
-    member: the first is this API failing, the second is this API refusing. Only the first is a
-    bug.
+    The last three are three different things and the splits are worth the extra members:
+    `INTERNAL_ERROR` is this API **failing**, `HTTP_ERROR` is this API **refusing**, and
+    `SERVICE_UNAVAILABLE` is this API **unable to serve** because something it depends on is not
+    answering. Only the first is a bug in this API, and only the third is worth taking an instance
+    out of a load balancer's rotation for. ADR-0006 and ADR-0008.
     """
 
     INVALID_TARGET_URL = "invalid-target-url"
     VALIDATION_ERROR = "validation-error"
     LINK_NOT_FOUND = "link-not-found"
     HTTP_ERROR = "http-error"
+    SERVICE_UNAVAILABLE = "service-unavailable"
     INTERNAL_ERROR = "internal-error"
