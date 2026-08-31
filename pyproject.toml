@@ -65,3 +65,9 @@ dev = [
     "ruff>=0.16.5",
     "testcontainers[postgres]>=4.15.0",
 ]
+
+[tool.ruff.lint.isort]
+# `tests` is first-party here even though it is not an installed package. Setting `src` above
+# drops the default `.` root, so without this line `from tests.fakes import ...` is filed with the
+# third-party imports and `ruff check` fails on the ordering.
+known-first-party = ["tests"]
