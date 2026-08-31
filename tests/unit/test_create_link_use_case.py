@@ -14,7 +14,9 @@ from url_shortener.domain.model.link import Link
 from url_shortener.domain.model.short_code import ShortCode
 from url_shortener.domain.service.url_hash import UrlHash, hash_url
 
-INSTANT = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
+# The microseconds are not decoration: a clock value that arrived truncated would otherwise
+# compare equal to this one, and the assertion would pass on a timestamp nobody wrote.
+INSTANT = datetime(2026, 8, 31, 12, 0, 0, 123456, tzinfo=UTC)
 TARGET = "https://example.com/a"
 
 
@@ -137,6 +139,30 @@ def test_two_different_urls_get_two_different_codes() -> None:
     second = use_case.create(CreateLinkCommand("https://example.com/b"))
 
     assert (first.code, second.code) == ("0000001", "0000002")
+
+
+def test_urls_a_normaliser_would_fold_together_stay_four_different_links() -> None:
+    """
+    Given four URLs that differ only in letter case and in a trailing slash,
+    when each is shortened,
+    then each gets its own link and each is stored exactly as it was submitted. The policy
+    normalises nothing, so neither does the digest -- folding two of these together would hand the
+    second caller a short link pointing at somebody else's destination.
+    """
+    links = InMemoryLinkRepository()
+    use_case = _use_case(links)
+    submitted = [
+        "https://example.com/AbC",
+        "https://example.com/abc",
+        "https://example.com/x",
+        "https://example.com/x/",
+    ]
+
+    results = [use_case.create(CreateLinkCommand(url)) for url in submitted]
+
+    assert len({result.code for result in results}) == 4
+    assert [result.url for result in results] == submitted
+    assert [link.url for link in links.rows] == submitted
 
 
 def test_losing_the_insert_race_answers_with_the_link_that_won() -> None:

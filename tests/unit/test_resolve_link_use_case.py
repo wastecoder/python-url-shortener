@@ -13,18 +13,22 @@ from url_shortener.domain.model.link import Link
 from url_shortener.domain.model.short_code import ShortCode
 from url_shortener.domain.service.url_hash import hash_url
 
-INSTANT = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
+# Two instants, on purpose. With one constant feeding both the stored link and the clock, a
+# click stamped with the moment the *link* was created would compare equal to a click
+# stamped with the moment it was *followed*, and the assertion below would prove nothing.
+CREATED_AT = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
+VISITED_AT = datetime(2026, 9, 2, 9, 30, 15, 123456, tzinfo=UTC)
 TARGET = "https://example.com/a"
 
 
 def _use_case(links: InMemoryLinkRepository, clicks: InMemoryClickRepository) -> ResolveLinkUseCase:
     """Build the subject, annotated with the port: the return type is the conformance assertion."""
-    return ResolveLinkUseCaseImpl(links, clicks, FixedClock(INSTANT))
+    return ResolveLinkUseCaseImpl(links, clicks, FixedClock(VISITED_AT))
 
 
 def _store_one_link(links: InMemoryLinkRepository, url: str = TARGET) -> Link:
     link_id = links.next_id()
-    link = Link(id=link_id, code=ShortCode.from_id(link_id), url=url, created_at=INSTANT)
+    link = Link(id=link_id, code=ShortCode.from_id(link_id), url=url, created_at=CREATED_AT)
     links.save(link, url_hash=hash_url(url))
     return link
 
@@ -73,7 +77,7 @@ def test_following_a_link_records_one_click_carrying_the_request_context() -> No
     assert len(clicks.recorded) == 1
     click = clicks.recorded[0]
     assert click.link_id == link.id
-    assert click.occurred_at == INSTANT
+    assert click.occurred_at == VISITED_AT
     assert click.user_agent == "curl/8.5.0"
     assert click.referer == "https://news.example"
     assert click.ip == ip_address("8.8.8.8")
@@ -110,6 +114,42 @@ def test_two_visits_to_one_link_append_two_clicks() -> None:
     use_case.resolve(str(link.code), user_agent=None, referer=None, ip=None)
 
     assert clicks.count_by_link(link.id) == 2
+
+
+def test_the_click_is_billed_to_the_link_that_was_followed() -> None:
+    """
+    Given two stored links,
+    when the second one is followed,
+    then the click points at the second and the first is still untouched. Every link in a fresh
+    store would otherwise be id 1, and an assertion about the id would only be asserting that.
+    """
+    links = InMemoryLinkRepository()
+    clicks = InMemoryClickRepository()
+    first = _store_one_link(links)
+    second = _store_one_link(links, "https://example.com/b")
+
+    _use_case(links, clicks).resolve(str(second.code), user_agent=None, referer=None, ip=None)
+
+    assert clicks.recorded[0].link_id == second.id
+    assert clicks.count_by_link(first.id) == 0
+
+
+def test_the_destination_comes_back_byte_for_byte() -> None:
+    """
+    Given a link stored with mixed case in its path and a trailing slash,
+    when its code is resolved,
+    then the destination is the string that was stored, untouched: a redirect that tidied the URL
+    would send the caller somewhere the owner never asked for.
+    """
+    links = InMemoryLinkRepository()
+    exact = "https://example.com/AbC/"
+    link = _store_one_link(links, exact)
+
+    result = _use_case(links, InMemoryClickRepository()).resolve(
+        str(link.code), user_agent=None, referer=None, ip=None
+    )
+
+    assert result.target_url == exact
 
 
 def test_an_unknown_code_is_not_found() -> None:

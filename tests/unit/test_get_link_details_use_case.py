@@ -68,8 +68,9 @@ def test_a_link_nobody_followed_reports_no_clicks() -> None:
 def test_the_total_counts_this_link_and_no_other() -> None:
     """
     Given two links, each with its own accesses,
-    when the details of the first are read,
-    then only its own clicks are counted.
+    when the details of the second are read,
+    then only its own clicks are counted. The second and not the first on purpose: every link in
+    a fresh store would be id 1, so reading the first would count the right number by accident.
     """
     links = InMemoryLinkRepository()
     clicks = InMemoryClickRepository()
@@ -79,9 +80,25 @@ def test_the_total_counts_this_link_and_no_other() -> None:
     clicks.record(Click(link_id=second.id, occurred_at=INSTANT))
     clicks.record(Click(link_id=second.id, occurred_at=INSTANT))
 
-    result = _use_case(links, clicks).get_details(str(first.code))
+    result = _use_case(links, clicks).get_details(str(second.code))
 
-    assert result.total_clicks == 1
+    assert result.total_clicks == 2
+
+
+def test_the_destination_is_reported_byte_for_byte() -> None:
+    """
+    Given a link stored with mixed case in its path and a trailing slash,
+    when its details are read,
+    then the URL comes back exactly as stored: this endpoint is how a caller checks where a link
+    points, so a tidied answer would be a wrong answer.
+    """
+    links = InMemoryLinkRepository()
+    exact = "https://example.com/AbC/"
+    link = _store_one_link(links, exact)
+
+    result = _use_case(links, InMemoryClickRepository()).get_details(str(link.code))
+
+    assert result.url == exact
 
 
 def test_reading_the_details_records_nothing() -> None:
