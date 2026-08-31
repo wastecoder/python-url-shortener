@@ -33,3 +33,12 @@ forbidden_modules =
     sqlalchemy
     pydantic
     alembic
+
+[importlinter:contract:boundary-carries-no-domain-object]
+name = The application boundary carries no domain object
+type = forbidden
+source_modules =
+    url_shortener.application.viewmodel
+    url_shortener.application.port.inbound
+forbidden_modules =
+    url_shortener.domain
