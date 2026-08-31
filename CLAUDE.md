@@ -148,6 +148,11 @@ bottleneck is a PostgreSQL round trip, not concurrency in the process. The failu
 prevents is the classic one: a **sync driver called from inside `async def` blocks the event
 loop**, which is measurably worse than staying sync.
 
+There is exactly one `async def` in the repository and it is not an endpoint: the ASGI lifespan in
+`main.py`, which reads the settings, builds the engine and disposes of it. ASGI defines that hook
+as an async context manager, nothing is being served while it runs, and no driver call happens
+inside a request because of it.
+
 Async is not forbidden forever, but it is **all or nothing**: making one controller `async def`
 means the use case, both repository ports and both repository implementations become `async def`
 too, because the port signatures are what carry it. Anything less is the bug above. Switching is a
@@ -236,9 +241,11 @@ even in tests. Tests run the same migrations production runs.
 existing one was returned. The caller can tell the difference.
 
 `/health` **checks its dependency** — a health check that always answers `200` is a lie, and it is
-the difference between this endpoint and a real Actuator. Until persistence exists it returns a
-static `{"status": "ok"}`; from Fase 4 it runs `SELECT 1` and answers `503` when the database is
-unreachable.
+the difference between this endpoint and a real Actuator. It runs `SELECT 1` on a connection of
+its own and answers `503` when the database does not respond. The connection is deliberately not
+the request's session: enlisted in that transaction, the endpoint would fail whenever the pool was
+busy, and — worse — a session that cannot connect raises while the dependency is being *acquired*,
+before the controller runs, which the generic handler would answer as `500`. ADR-0008.
 
 `short_url` is built from the `BASE_URL` setting — the API never guesses its own public host.
 
@@ -255,6 +262,7 @@ enum taxonomy. A domain module must never import a status code.
 | Malformed request body (Pydantic) | `422` | `validation-error` |
 | Unknown code on `GET /{code}` or `GET /links/{code}` | `404` | `link-not-found` |
 | Refused by the router itself (wrong method, unmatched path) | `405` / `404` | `http-error` |
+| A dependency is not answering — `/health` only | `503` | `service-unavailable` |
 | Anything unhandled | `500` | `internal-error` |
 
 `400` versus `422` is the distinction between *the schema is fine but the business rule says no*
@@ -266,6 +274,14 @@ refuses a wrong method or an unmatched path before any controller runs, and with
 `HTTPException` those answer Starlette's `{"detail": ...}` in `application/json`. It is not one
 situation but a family, so its status travels on the exception and its title is the status phrase.
 ADR-0006.
+
+`service-unavailable` is the sixth and the only one that is not about a request. `500` is this
+API **failing**, `http-error` is this API **refusing**, and `503` is this API **unable to serve**
+because something it depends on is out — only the first is a bug here, and only the last is worth
+taking an instance out of a load balancer's rotation for. It is answered by `/health` and by
+nothing else: a database outage on the three business routes stays a `500`. Its exception lives in
+`adapter/web/handler/`, not in `domain.exception`, because "the database is down" is not a rule of
+the business and nothing in the domain could raise it. ADR-0008.
 
 The generated OpenAPI document does not describe this envelope on its own — FastAPI files problem
 bodies under `application/json` and injects a `422` pointing at its own `HTTPValidationError` into
@@ -287,7 +303,7 @@ never activate `.venv` manually, and never call `pip` directly.
 | Coverage | `uv run pytest --cov=src/url_shortener --cov-report=term-missing` |
 | Lint | `uv run ruff check .` — fix: `uv run ruff check --fix .` |
 | Format | `uv run ruff format .` |
-| Types | `uv run mypy` — reads `files` from `pyproject.toml`: `src` **and** `tests` |
+| Types | `uv run mypy` — reads `files` from `pyproject.toml`: `src`, `tests` **and** `migrations` |
 | Architecture contracts | `uv run lint-imports` |
 | Apply migrations | `uv run alembic upgrade head` |
 | New migration | `uv run alembic revision --autogenerate -m "<message>"` |
