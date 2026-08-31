@@ -76,8 +76,16 @@ def app(
     clock: FixedClock,
     settings: Settings,
 ) -> FastAPI:
-    """The real application, with only its driven ports replaced."""
-    application = create_app()
+    """The real application, with only its driven ports replaced.
+
+    The settings are handed to `create_app` as well as overridden as a dependency, and the two are
+    doing different jobs. The override is what the controllers read, so that `short_url` is built
+    from a known origin. The constructor argument is what the startup hook reads, so that the app
+    builds its engine from this DSN instead of going to look for an environment -- which is what
+    keeps this suite runnable on a machine with no `.env`, no `DATABASE_URL` and no database. The
+    DSN points at nothing, and nothing ever connects to it: building an engine opens no socket.
+    """
+    application = create_app(settings=settings)
     application.dependency_overrides[get_link_repository] = lambda: links
     application.dependency_overrides[get_click_repository] = lambda: clicks
     application.dependency_overrides[get_clock] = lambda: clock
