@@ -13,6 +13,7 @@ from typing import Final
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 # Seconds libpq waits for a connection before giving up. It exists mostly for `/health`: with no
 # timeout, a host that accepts packets and never answers turns the health check into a request that
@@ -39,6 +40,30 @@ def create_database_engine(dsn: str) -> Engine:
         # branch that raises `RuntimeError`. A precondition that a line in `postgresql.conf` can
         # revoke is not a precondition.
         isolation_level="READ COMMITTED",
+        connect_args={"connect_timeout": CONNECT_TIMEOUT_SECONDS},
+    )
+
+
+def create_probe_engine(dsn: str) -> Engine:
+    """A second engine, for the health check and nothing else.
+
+    It exists because sharing the request engine would make `/health` report on the wrong thing.
+    A pool has a size, and a checkout from an exhausted one does not fail fast -- it **waits**, up
+    to `pool_timeout`, which defaults to thirty seconds. Under load the health check would hang for
+    half a minute and then answer `503` while the database was answering normally: a report about
+    this process's saturation, dressed as a report about the database.
+
+    `NullPool` means every call opens a connection and closes it. That is the wrong default for a
+    request path and the right one here: one short statement, no state to keep warm, and
+    `connect_timeout` as the real upper bound on how long the endpoint can take. `pool_pre_ping`
+    would be meaningless -- there is no pooled connection to find stale.
+
+    The cost is a connect per call, so a health check hit every second is a connection every
+    second. At this scale that is cheaper than the failure it removes.
+    """
+    return create_engine(
+        dsn,
+        poolclass=NullPool,
         connect_args={"connect_timeout": CONNECT_TIMEOUT_SECONDS},
     )
 
