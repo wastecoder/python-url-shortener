@@ -2,13 +2,17 @@
 
 from http import HTTPStatus
 from ipaddress import IPv4Address, IPv6Address
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.requests import Request
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from tests.fakes import InMemoryClickRepository
 from tests.unit.conftest import CLIENT_ADDRESS, CLIENT_PORT, NOW
+from url_shortener.adapter.web.redirect_controller import _client_address
 
 TARGET = "https://example.com/a?x=1#top"
 
@@ -81,21 +85,45 @@ def test_the_recorded_click_carries_the_request_context(
     assert recorded.ip == IPv4Address(CLIENT_ADDRESS)
 
 
-def test_a_missing_header_is_recorded_as_absent(
+def test_headers_that_were_not_sent_are_recorded_as_absent(
     client: TestClient, clicks: InMemoryClickRepository
 ) -> None:
     """
-    Given a request that sends no referer,
+    Given a request that carries neither a user agent nor a referer,
     when the code is followed,
-    then the click records it as absent rather than as an empty string -- an HTTP client owes
-    neither header, and a click with no referer is still a click.
+    then the click records both as absent -- an HTTP client owes neither header, and a click
+    without them is still a click.
+
+    The headers have to be stripped from a built request rather than simply not passed: the test
+    client sends a `User-Agent` of its own unless one is removed. Without this, `headers.get(...)`
+    could be given a default of `""` and nothing in the suite would notice -- which is exactly the
+    mutant this test exists to kill, because an absent header and an empty one are different
+    values in a nullable column.
+    """
+    code = _create(client)
+
+    request = client.build_request("GET", f"/{code}")
+    del request.headers["user-agent"]
+    client.send(request)
+
+    assert clicks.recorded[0].user_agent is None
+    assert clicks.recorded[0].referer is None
+
+
+def test_an_empty_header_is_recorded_as_the_empty_string(
+    client: TestClient, clicks: InMemoryClickRepository
+) -> None:
+    """
+    Given a request that sends a referer with no value,
+    when the code is followed,
+    then the click records the empty string and not absence: the caller sent the header, and this
+    adapter reports what arrived instead of deciding that an empty value means nothing arrived.
     """
     code = _create(client)
 
     client.get(f"/{code}", headers={"referer": ""})
 
     assert clicks.recorded[0].referer == ""
-    assert clicks.recorded[0].user_agent is not None
 
 
 def test_an_ipv6_peer_is_recorded_as_an_ipv6_address(
@@ -163,3 +191,43 @@ def test_following_a_link_is_visible_in_its_details(client: TestClient) -> None:
     client.get(f"/{code}")
 
     assert client.get(f"/links/{code}").json()["total_clicks"] == 2
+
+
+def test_a_request_without_a_client_records_no_address() -> None:
+    """
+    Given an ASGI scope carrying no client, which a server is allowed to send,
+    when the address is read,
+    then it is absent -- the guard is exercised here because the test client always reports a
+    peer, so this branch is unreachable through an HTTP request.
+    """
+    scope: dict[str, Any] = {"type": "http", "headers": [], "method": "GET", "path": "/0000001"}
+
+    assert _client_address(Request(scope)) is None
+
+
+def test_a_proxy_in_front_is_what_decides_the_address_not_this_adapter(
+    app: FastAPI, clicks: InMemoryClickRepository
+) -> None:
+    """
+    Given the application behind uvicorn's proxy-header middleware, which is on by default and
+    trusts loopback,
+    when a loopback caller sends X-Forwarded-For,
+    then the click records the address from the header -- because the server rewrote the peer
+    before the request arrived here.
+
+    This is the test that keeps the docstring of `_client_address` honest. The adapter never reads
+    that header, and saying so without qualification would still be false about the process as it
+    is actually run: deciding which upstream hops may be believed is the server's job, and the
+    consequence is that Fase 3 has to run with `--forwarded-allow-ips=""`.
+    """
+    # Uvicorn annotates its middleware with the `asgiref` scope and event unions; FastAPI and the
+    # test client speak Starlette's looser `ASGIApp`. The two describe the same protocol and
+    # neither is assignable to the other, which is a disagreement between two libraries rather
+    # than something this test can express its way out of.
+    behind_proxy = ProxyHeadersMiddleware(app, trusted_hosts="127.0.0.1")  # type: ignore[arg-type]
+
+    with TestClient(behind_proxy, follow_redirects=False, client=("127.0.0.1", 5555)) as proxied:  # type: ignore[arg-type]
+        code = _create(proxied)
+        proxied.get(f"/{code}", headers={"x-forwarded-for": "203.0.113.9"})
+
+    assert clicks.recorded[0].ip == IPv4Address("203.0.113.9")

@@ -68,11 +68,23 @@ def _client_address(request: Request) -> IPv4Address | IPv6Address | None:
     ASGI server may report no client at all, the value may not parse as an address, and it may
     parse fine -- a click with no address is a click, not an error.
 
-    `X-Forwarded-For` is deliberately not read. Nothing terminates in front of this application, so
-    the header is not evidence of anything: any caller can set it, and trusting it would let every
-    click record whatever address its sender preferred. The day a proxy exists, the fix is to
-    configure the ASGI server's trusted-hosts middleware -- which parses the header once, against a
-    list of proxies it is told about -- and not to read it here.
+    `X-Forwarded-For` is deliberately not read **here**, and that sentence needs its qualifier,
+    because the process as a whole does read it. Uvicorn defaults to `proxy_headers=True` with
+    `forwarded_allow_ips` of `127.0.0.1`, so its `ProxyHeadersMiddleware` rewrites
+    `scope["client"]` from that header for any request arriving over loopback -- measured in this
+    repository: through the middleware, a loopback caller sending `X-Forwarded-For: 203.0.113.9`
+    produces a click carrying `203.0.113.9`, while the bare application records `127.0.0.1`.
+
+    That is the right division of labour rather than a hole. Deciding which upstream hops may be
+    believed is a deployment fact, and the server is where the list of trusted proxies is
+    configured; this function's job is only to turn whatever the server settled on into an address
+    object. What it must never do is read the header itself, because at this point the request has
+    no idea whether a proxy exists -- and a header any caller can set would let every click record
+    whatever address its sender preferred.
+
+    The consequence to know: run with `--forwarded-allow-ips=""` (or `--no-proxy-headers`) when
+    nothing trusted sits in front, which is the case in Fase 3. There is a test driving the app
+    through that middleware, so this paragraph is checked rather than believed.
     """
     client = request.client
     if client is None:
