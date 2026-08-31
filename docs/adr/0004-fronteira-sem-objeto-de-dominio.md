@@ -15,7 +15,7 @@ docstring do pacote `viewmodel` desde a Fase 0. O problema é que docstring não
 contrato `layers` do `.importlinter` permite `adapter -> domain` — e permite corretamente, porque
 o mapper da Fase 4 precisa importar `Link` para converter linha em entidade. Consequência: nada
 hoje impede um `LinkResult` de ter o campo `code: ShortCode`, nem uma porta de entrada de declarar
-`-> Link`. As duas coisas passam no `mypy`, no `ruff` e nos quatro contratos existentes.
+`-> Link`. As duas coisas passam no `mypy`, no `ruff` e nos três contratos existentes.
 
 Isso importa porque é o tipo de erro que **não** dói na hora. Um `ShortCode` num viewmodel funciona
 perfeitamente na Fase 3; o preço aparece na Fase 4, quando trocar o adaptador de persistência
@@ -24,7 +24,7 @@ tem da arquitetura que ele afirma ter.
 
 ## Decisão
 
-Um quinto contrato no `.importlinter`, do tipo `forbidden`, cobrindo as **duas** metades da
+Um quarto contrato no `.importlinter`, do tipo `forbidden`, cobrindo as **duas** metades da
 fronteira:
 
 ```ini
@@ -56,8 +56,11 @@ para dentro do adaptador de uma vez.
 - com `from url_shortener.domain.model.short_code import ShortCode` em `link_result.py`, o
   contrato quebra **duas vezes**: pela metade `viewmodel` (import direto) e pela metade
   `port.inbound` (cadeia `create_link_use_case -> link_result -> short_code`);
-- com `from url_shortener.domain.model.link import Link` em `get_link_details_use_case.py`, quebra
-  só pela metade `port.inbound`, apontando a linha.
+- com `from url_shortener.domain.model.link import Link` em
+  `application/port/inbound/get_link_details_use_case.py`, quebra só pela metade `port.inbound`,
+  apontando a linha. **O caminho completo importa aqui:** existe um arquivo de mesmo nome em
+  `application/usecase/`, e lá importar `Link` é legítimo e não quebra contrato nenhum — quem
+  reproduzir a verificação no arquivo errado vê o contrato verde e conclui que esta seção mente.
 
 O `CLAUDE.md` exige ADR para mexer no `.importlinter`. A exigência foi escrita pensando em
 *afrouxar* um contrato, mas o registro de por que um contrato foi *acrescentado* é o artefato que
