@@ -36,6 +36,7 @@ O porquê de cada escolha estrutural está em [`docs/adr/`](docs/adr/):
 - [ADR-0001](docs/adr/0001-redirect-302.md) — o redirect é `302`, e não `301`
 - [ADR-0002](docs/adr/0002-base62-sobre-a-sequence.md) — base 62 sobre a sequence, e não hash da URL
 - [ADR-0003](docs/adr/0003-sem-fila.md) — sem fila, e o lugar exato onde ela entraria
+- [ADR-0004](docs/adr/0004-fronteira-sem-objeto-de-dominio.md) — a fronteira da aplicação não carrega objeto de domínio
 
 ## Como rodar
 
