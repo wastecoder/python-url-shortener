@@ -13,7 +13,7 @@ to constrain twenty lines that exist to import things.
 
 from fastapi import FastAPI
 
-from url_shortener.adapter.web import health_controller, link_controller
+from url_shortener.adapter.web import health_controller, link_controller, redirect_controller
 from url_shortener.adapter.web.handler.problem_details import register_exception_handlers
 
 
@@ -33,8 +33,14 @@ def create_app() -> FastAPI:
     # than in Starlette's defaults.
     register_exception_handlers(app)
 
+    # The order below is load-bearing. `GET /{code}` is a catch-all matching any single segment
+    # at the root, so it has to be registered *after* `/links` and `/health` -- and after the
+    # documentation routes, which FastAPI registers on the app before any of this runs. Move it up
+    # and every one of those paths resolves as a short code instead, then answers 404, because
+    # none of them is seven characters long.
     app.include_router(link_controller.router)
     app.include_router(health_controller.router)
+    app.include_router(redirect_controller.router)
 
     return app
 
