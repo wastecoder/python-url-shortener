@@ -27,17 +27,23 @@ def create_app() -> FastAPI:
             "Four routes and nothing else: create a link, follow it, read what is known about "
             "it, and report health. Every failure answers with an RFC 7807 problem document."
         ),
+        # A trailing slash is a 404 in this API's own envelope, not a redirect. Starlette's
+        # convenience 307 builds its `Location` out of the request's own `Host` header and
+        # scheme -- exactly the guess `public_url.py` exists to refuse, since behind a proxy that
+        # header names something this service was never told it answers on. None of the four
+        # routes is defined with a trailing slash, so nothing is given up by saying no.
+        redirect_slashes=False,
     )
 
     # Before the routers, so that a failure raised while answering any of them lands here rather
     # than in Starlette's defaults.
     register_exception_handlers(app)
 
-    # The order below is load-bearing. `GET /{code}` is a catch-all matching any single segment
-    # at the root, so it has to be registered *after* `/links` and `/health` -- and after the
-    # documentation routes, which FastAPI registers on the app before any of this runs. Move it up
-    # and every one of those paths resolves as a short code instead, then answers 404, because
-    # none of them is seven characters long.
+    # The order below is load-bearing. `GET /{code}` is a catch-all matching any single segment at
+    # the root, so it has to be registered *after* `/links` and `/health`. Move it up and both of
+    # those paths resolve as a short code instead, then answer 404, because neither is seven
+    # characters long. The documentation routes are safe for a different reason, not this one:
+    # `FastAPI.__init__` registers them before any of this code runs.
     app.include_router(link_controller.router)
     app.include_router(health_controller.router)
     app.include_router(redirect_controller.router)
