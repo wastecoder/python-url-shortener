@@ -80,10 +80,14 @@ def test_the_session_is_closed_before_the_response_is_sent(app: FastAPI) -> None
     then it declares scope "function".
 
     This is the assertion ADR-0007 exists for, and it is worth stating what it does and does not
-    prove. It does not prove the ordering -- that was measured, and only an integration test that
-    poisons the commit can re-measure it. What it proves is that the word is still there: the
-    default scope is "request", the code without it is one token shorter and looks identical, and
-    under it a failed COMMIT leaves the caller holding a 302 for a redirect that recorded nothing.
+    prove. It does not prove the ordering; it proves the word is still there. The default scope is
+    "request", the code without it is one token shorter and looks identical, and under it a failed
+    COMMIT leaves the caller holding a 302 for a redirect that recorded nothing.
+
+    The ordering itself *is* reachable from a unit test -- a `dependency_overrides` entry whose
+    teardown raises answers 500 under this scope and 200 under the default, because the override
+    inherits the scope of the original `Depends`. What no unit test can do is poison the real
+    commit, which is the Fase 5 version of this check.
     """
     found = [
         node
