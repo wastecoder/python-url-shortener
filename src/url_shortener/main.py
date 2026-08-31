@@ -11,10 +11,17 @@ it as a fourth layer would mean editing `.importlinter`, which this project requ
 to constrain twenty lines that exist to import things.
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
 
+from url_shortener.adapter.config.settings import Settings, get_settings
+from url_shortener.adapter.persistence.database.session import (
+    create_database_engine,
+    create_session_factory,
+)
 from url_shortener.adapter.web import health_controller, link_controller, redirect_controller
 from url_shortener.adapter.web.handler.problem_details import (
     PROBLEM_MEDIA_TYPE,
@@ -27,8 +34,48 @@ _FASTAPI_VALIDATION_SCHEMA_REFS = frozenset(
 )
 
 
-def create_app() -> FastAPI:
-    """Build the application: exception handlers first, then the routers, in order."""
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Everything that has to exist before the first request, and be let go after the last.
+
+    **This is where the settings are actually read.** Until Fase 4 they were a `Depends`, so a
+    process started without `BASE_URL` came up clean and only failed on the first request. With a
+    `DATABASE_URL` genuinely in use that stopped being tolerable -- but moving the read into
+    `create_app` would have been worse, because `main.py` runs `create_app()` at import time and the
+    test suite imports this module while collecting. A missing setting would then be a collection
+    error, on a machine that has no reason to own a database. Startup is the moment the phrase
+    "fail loudly at startup" actually names, and it is the moment nothing imports.
+
+    **And where the engine is built and disposed.** One engine per application, so the pool is
+    shared by every request instead of rebuilt per request; disposed on the way out, so a reloader
+    does not leave a pool of connections behind on every restart. Building it opens nothing.
+
+    It is `async def`, which is the one place in this project that is, and it is not a crack in the
+    synchronous runtime model: ASGI defines the lifespan hook as an async context manager, and the
+    rule that exists here -- never call a blocking driver from inside `async def` -- is about
+    request handling. Nothing is being served while these two lines run.
+    """
+    settings: Settings | None = app.state.configured_settings
+    resolved = settings if settings is not None else get_settings()
+
+    engine = create_database_engine(resolved.database_url)
+    app.state.engine = engine
+    app.state.session_factory = create_session_factory(engine)
+
+    try:
+        yield
+    finally:
+        engine.dispose()
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    """Build the application: exception handlers first, then the routers, in order.
+
+    `settings` defaults to `None`, which is what production passes: read the environment at
+    startup. A caller that hands over its own gets an application that never reads the environment
+    at all -- which is what keeps `uv run pytest` runnable on a fresh clone with no `.env`, and what
+    lets Fase 5 point the same application at a throwaway database.
+    """
     app = FastAPI(
         title="url-shortener",
         version="0.1.0",
@@ -43,7 +90,12 @@ def create_app() -> FastAPI:
         # header names something this service was never told it answers on. None of the four
         # routes is defined with a trailing slash, so nothing is given up by saying no.
         redirect_slashes=False,
+        lifespan=_lifespan,
     )
+
+    # Read by `_lifespan` at startup, not here. See its docstring: constructing the settings inside
+    # this function would make importing this module require an environment.
+    app.state.configured_settings = settings
 
     # Before the routers, so that a failure raised while answering any of them lands here rather
     # than in Starlette's defaults.
