@@ -1,10 +1,13 @@
 """Fixtures for the API tests: the real application, with the driven ports swapped for fakes.
 
-What is overridden here is deliberately narrow. Only the three **driven** ports are replaced --
-the two repositories and the clock -- plus the settings, so that the short URLs are built from a
-known origin. The use cases are not overridden, which means every one of these tests runs the real
-`CreateLinkUseCaseImpl`, the real deduplication flow and the real wiring in `dependencies.py`.
-FastAPI resolves overrides through sub-dependencies, so replacing a leaf is enough.
+What is overridden here is deliberately narrow: the three **driven** ports -- the two repositories
+and the clock -- plus the health probe, which is the one thing `/health` asks about, plus the
+settings, so that the short URLs are built from a known origin. The use cases are not overridden,
+which means every one of these tests runs the real `CreateLinkUseCaseImpl`, the real deduplication
+flow and the real wiring in `dependencies.py`. FastAPI resolves overrides through sub-dependencies,
+so replacing a leaf is enough -- and it is why none of these tests opens a database connection
+despite the application being wired to PostgreSQL: `get_session` sits under the repositories that
+were replaced, so it is never resolved.
 
 The app is built per test by `create_app()`. `dependency_overrides` is state on the app object, so
 sharing one app across tests would leak one test's fakes into the next.
@@ -17,10 +20,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.fakes import FixedClock, InMemoryClickRepository, InMemoryLinkRepository
+from tests.fakes import (
+    FixedClock,
+    InMemoryClickRepository,
+    InMemoryLinkRepository,
+    StubHealthProbe,
+)
 from url_shortener.adapter.config.dependencies import (
     get_click_repository,
     get_clock,
+    get_health_probe,
     get_link_repository,
 )
 from url_shortener.adapter.config.settings import Settings, get_settings
@@ -56,6 +65,12 @@ def clock() -> FixedClock:
 
 
 @pytest.fixture
+def probe() -> StubHealthProbe:
+    """A health probe reporting the database as answering, which tests can flip."""
+    return StubHealthProbe()
+
+
+@pytest.fixture
 def settings() -> Settings:
     """Settings built in the test rather than read from the environment.
 
@@ -74,6 +89,7 @@ def app(
     links: InMemoryLinkRepository,
     clicks: InMemoryClickRepository,
     clock: FixedClock,
+    probe: StubHealthProbe,
     settings: Settings,
 ) -> FastAPI:
     """The real application, with only its driven ports replaced.
@@ -89,6 +105,7 @@ def app(
     application.dependency_overrides[get_link_repository] = lambda: links
     application.dependency_overrides[get_click_repository] = lambda: clicks
     application.dependency_overrides[get_clock] = lambda: clock
+    application.dependency_overrides[get_health_probe] = lambda: probe
     application.dependency_overrides[get_settings] = lambda: settings
     return application
 

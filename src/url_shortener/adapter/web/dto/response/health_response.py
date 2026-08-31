@@ -6,11 +6,16 @@ from pydantic import BaseModel
 class HealthResponse(BaseModel):
     """What the service says about itself.
 
-    `status` is a plain `str` and not a `Literal["ok"]`, because this endpoint is not finished. In
-    Fase 3 there is no dependency to check, so it answers a static `ok`. From Fase 4 it runs
-    `SELECT 1` against the database and answers `503` when that fails -- a health check that
-    always answers `200` is a lie, and that is the whole difference between this endpoint and a
-    placeholder.
+    This is the **success** body and the only one it has: the endpoint runs `SELECT 1` against the
+    database, and a database that does not answer produces a `503` in the API's Problem Details
+    envelope instead of a different shape of this model. So `status` has exactly one value on the
+    wire today, `"ok"`.
+
+    It is nevertheless a plain `str` and not a `Literal["ok"]`. A `Literal` would say that this
+    service can only ever report one thing about itself, and the moment a second dependency exists
+    -- a cache, an object store -- a degraded-but-serving answer becomes a real state, distinct
+    from both `200 ok` and `503`. Widening the type then would change the published schema; leaving
+    it open costs nothing now.
     """
 
     status: str
