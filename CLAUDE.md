@@ -130,6 +130,10 @@ The dependency rule is checked by **import-linter** (`.importlinter`) and runs i
    `pydantic`, `alembic`.
 3. **Forbidden:** `url_shortener.application` must not import `fastapi`, `starlette`, `sqlalchemy`,
    `pydantic`, `alembic`.
+4. **Forbidden:** `url_shortener.application.viewmodel` and `url_shortener.application.port.inbound`
+   must not import `url_shortener.domain`. The surface a controller reads carries no domain object,
+   which is what the `viewmodel` package exists to say — and the `layers` contract cannot say it,
+   because `adapter -> domain` has to stay legal for the persistence mapper. ADR-0004.
 
 If a contract fails, **fix the import — do not relax the contract.** Changing `.importlinter`
 requires an ADR.
