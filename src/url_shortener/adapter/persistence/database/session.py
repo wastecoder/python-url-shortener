@@ -35,9 +35,10 @@ def create_database_engine(dsn: str) -> Engine:
         # nowhere in this codebase; with it, the dead connection is discarded and replaced.
         pool_pre_ping=True,
         # `READ COMMITTED` is already PostgreSQL's default, and it is pinned here anyway because
-        # `CreateLinkUseCaseImpl` argues from it: under `REPEATABLE READ`, the re-read that follows
-        # a lost deduplication race would keep the original snapshot and find nothing, which is the
-        # branch that raises `RuntimeError`. A precondition that a line in `postgresql.conf` can
+        # the deduplication flow only works under it. Measured against a real server: under
+        # `REPEATABLE READ` the losing `INSERT ... ON CONFLICT (url_hash) DO NOTHING` does not come
+        # back empty, it raises `SerializationFailure` -- so a request that lost the race would
+        # answer 500 rather than the winning link. A precondition a line in `postgresql.conf` can
         # revoke is not a precondition.
         isolation_level="READ COMMITTED",
         connect_args={"connect_timeout": CONNECT_TIMEOUT_SECONDS},
