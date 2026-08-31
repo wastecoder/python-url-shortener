@@ -6,6 +6,7 @@ from ipaddress import ip_address
 import pytest
 
 from tests.fakes import FixedClock, InMemoryClickRepository, InMemoryLinkRepository
+from tests.mothers import LinkMother, TargetUrlMother
 from url_shortener.application.port.inbound.resolve_link_use_case import ResolveLinkUseCase
 from url_shortener.application.usecase.resolve_link_use_case import ResolveLinkUseCaseImpl
 from url_shortener.domain.exception.link_not_found_error import LinkNotFoundError
@@ -13,12 +14,12 @@ from url_shortener.domain.model.link import Link
 from url_shortener.domain.model.short_code import ShortCode
 from url_shortener.domain.service.url_hash import hash_url
 
-# Two instants, on purpose. With one constant feeding both the stored link and the clock, a
-# click stamped with the moment the *link* was created would compare equal to a click
-# stamped with the moment it was *followed*, and the assertion below would prove nothing.
-CREATED_AT = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
+# Two instants, on purpose. The stored link is stamped by the mother, at `mothers.CREATED_AT`;
+# the clock reports this one. With a single instant feeding both, a click stamped with the moment
+# the *link* was created would compare equal to a click stamped with the moment it was *followed*,
+# and the assertion below would prove nothing.
 VISITED_AT = datetime(2026, 9, 2, 9, 30, 15, 123456, tzinfo=UTC)
-TARGET = "https://example.com/a"
+TARGET = TargetUrlMother.accepted()
 
 
 def _use_case(links: InMemoryLinkRepository, clicks: InMemoryClickRepository) -> ResolveLinkUseCase:
@@ -27,8 +28,8 @@ def _use_case(links: InMemoryLinkRepository, clicks: InMemoryClickRepository) ->
 
 
 def _store_one_link(links: InMemoryLinkRepository, url: str = TARGET) -> Link:
-    link_id = links.next_id()
-    link = Link(id=link_id, code=ShortCode.from_id(link_id), url=url, created_at=CREATED_AT)
+    """Put one link in the store the way the use case would find it, and hand it back."""
+    link = LinkMother.with_id(links.next_id(), url=url)
     links.save(link, url_hash=hash_url(url))
     return link
 

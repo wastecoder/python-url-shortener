@@ -1,18 +1,14 @@
 """Turning a path segment into a link, which is the one step both read use cases share."""
 
-from datetime import UTC, datetime
-
 import pytest
 
 from tests.fakes import InMemoryLinkRepository
+from tests.mothers import LinkMother
 from url_shortener.application.usecase.link_lookup import require_link
 from url_shortener.domain.exception.link_not_found_error import LinkNotFoundError
 from url_shortener.domain.model.link import Link
 from url_shortener.domain.model.short_code import ShortCode
 from url_shortener.domain.service.url_hash import hash_url
-
-CREATED_AT = datetime(2026, 8, 31, 12, 0, 0, 123456, tzinfo=UTC)
-TARGET = "https://example.com/a"
 
 
 class _RepositoryWithACorruptRow(InMemoryLinkRepository):
@@ -32,8 +28,8 @@ def test_a_stored_code_yields_the_link_it_names() -> None:
     then the link comes back.
     """
     links = InMemoryLinkRepository()
-    link = Link(id=1, code=ShortCode.from_id(1), url=TARGET, created_at=CREATED_AT)
-    links.save(link, url_hash=hash_url(TARGET))
+    link = LinkMother.first()
+    links.save(link, url_hash=hash_url(link.url))
 
     assert require_link(links, str(link.code)) is link
 

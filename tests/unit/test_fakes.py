@@ -6,22 +6,27 @@ check perfectly. In Fase 5 this file is the seed of a contract suite run against
 the real repository, at which point it stops testing a double and starts specifying both.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from ipaddress import ip_address
 
 import pytest
 
 from tests.fakes import FixedClock, InMemoryClickRepository, InMemoryLinkRepository
+from tests.mothers import CREATED_AT, ClickMother, LinkMother
 from url_shortener.domain.model.click import Click
 from url_shortener.domain.model.link import Link
 from url_shortener.domain.model.short_code import ShortCode
 from url_shortener.domain.service.url_hash import hash_url
 
-INSTANT = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
-
 
 def _link(link_id: int, url: str) -> Link:
-    return Link(id=link_id, code=ShortCode.from_id(link_id), url=url, created_at=INSTANT)
+    """The mother's link, behind a local name because every call here names its own URL.
+
+    The URLs matter in this file -- what is under test is two dictionaries keyed by digest and by
+    code -- while the id, the code and the instant do not, which is exactly the split a mother is
+    for.
+    """
+    return LinkMother.with_id(link_id, url=url)
 
 
 def test_the_sequence_hands_out_increasing_ids_and_remembers_what_it_spent() -> None:
@@ -122,7 +127,7 @@ def test_the_stored_rows_are_a_tuple_a_test_cannot_edit() -> None:
     links = InMemoryLinkRepository()
     links.save(_link(1, "https://example.com"), url_hash=hash_url("https://example.com"))
     clicks = InMemoryClickRepository()
-    clicks.record(Click(link_id=1, occurred_at=INSTANT))
+    clicks.record(ClickMother.on_link_id(1))
 
     assert isinstance(links.rows, tuple)
     assert isinstance(clicks.recorded, tuple)
@@ -136,9 +141,9 @@ def test_clicks_are_appended_in_order_and_never_replaced() -> None:
     """
     clicks = InMemoryClickRepository()
     recorded = [
-        Click(link_id=1, occurred_at=INSTANT, user_agent="curl"),
-        Click(link_id=1, occurred_at=INSTANT, referer="https://example.com"),
-        Click(link_id=1, occurred_at=INSTANT, ip=ip_address("8.8.8.8")),
+        Click(link_id=1, occurred_at=CREATED_AT, user_agent="curl"),
+        Click(link_id=1, occurred_at=CREATED_AT, referer="https://example.com"),
+        Click(link_id=1, occurred_at=CREATED_AT, ip=ip_address("8.8.8.8")),
     ]
     for click in recorded:
         clicks.record(click)
@@ -153,9 +158,9 @@ def test_the_count_belongs_to_one_link_and_not_to_the_table() -> None:
     then each answer counts only its own, and a link nobody followed counts zero.
     """
     clicks = InMemoryClickRepository()
-    clicks.record(Click(link_id=1, occurred_at=INSTANT))
-    clicks.record(Click(link_id=1, occurred_at=INSTANT))
-    clicks.record(Click(link_id=2, occurred_at=INSTANT))
+    clicks.record(ClickMother.on_link_id(1))
+    clicks.record(ClickMother.on_link_id(1))
+    clicks.record(ClickMother.on_link_id(2))
 
     assert clicks.count_by_link(1) == 2
     assert clicks.count_by_link(2) == 1
@@ -168,10 +173,10 @@ def test_a_fixed_clock_answers_the_same_instant_every_time() -> None:
     when it is asked twice,
     then both answers are that instant, which is what makes a written timestamp assertable.
     """
-    clock = FixedClock(INSTANT)
+    clock = FixedClock(CREATED_AT)
 
-    assert clock.now() == INSTANT
-    assert clock.now() == INSTANT
+    assert clock.now() == CREATED_AT
+    assert clock.now() == CREATED_AT
 
 
 def test_a_fixed_clock_refuses_a_naive_instant() -> None:
