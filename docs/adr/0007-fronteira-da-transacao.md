@@ -52,7 +52,8 @@ requisição*, portanto antes de a resposta ir para o fio.
 
 ```python
 def get_session(request: Request) -> Iterator[Session]:
-    with _session_factory(request).begin() as session:
+    factory: sessionmaker[Session] = request.app.state.session_factory
+    with factory.begin() as session:
         yield session
 ```
 
@@ -69,9 +70,10 @@ literalmente verdadeira a promessa de `record`: o `INSERT` sai no momento da cha
 constraint, de chave estrangeira ou de conectividade levanta **dentro do caso de uso**, e não no
 código de saída. Só a falha do `COMMIT` em si depende do escopo escolhido acima.
 
-**5. `GET /health` fica fora dessa transação.** Ele não depende da `Session`; abre sua própria
-conexão curta pela engine. Um `/health` alistado na transação da requisição falharia por
-esgotamento de pool — um motivo que nada tem a ver com a saúde que ele relata.
+**5. `GET /health` fica fora dessa transação.** Ele não depende da `Session`, e nem sequer da mesma
+engine: roda sobre uma engine própria, sem pool. Alistado na transação da requisição, ele ficaria
+esperando na fila de um pool esgotado e depois chamaria o banco de indisponível — um motivo que nada
+tem a ver com a saúde que ele relata. ADR-0008.
 
 **6. Nenhuma porta ganha `commit`.** A decisão desta ADR é inteiramente do adaptador, e o
 `application` não muda uma linha por causa dela.
@@ -86,11 +88,13 @@ mais para o mesmo resultado observável.
 
 **Por que não commitar dentro de cada método de escrita do repositório.** Seria robusto e é
 defensável — a falha passaria a levantar dentro do caso de uso sem depender de nenhuma sutileza de
-framework, e a releitura do passo 4 da deduplicação ganharia uma transação nova, o que fecharia o
-ramo `RuntimeError` do `CreateLinkUseCaseImpl` até sob `REPEATABLE READ`. Foi recusada por
-contradizer o que a porta já afirma: a transação pertence à borda da requisição. Com o commit no
-repositório, a resposta à pergunta "qual é a unidade de trabalho desta API?" passa a ser "não há
-nenhuma" — verdadeira hoje, e frágil no dia em que uma rota fizer duas escritas.
+framework, e a releitura do passo 4 da deduplicação ganharia uma transação nova. (A primeira versão
+desta ADR dizia que isso fecharia o ramo `RuntimeError` até sob `REPEATABLE READ`. Não fecharia:
+sob aquele nível o próprio `INSERT` levanta `SerializationFailure`, e a releitura nunca acontece —
+medido contra um servidor de verdade.) Foi recusada por contradizer o que a porta já afirma: a
+transação pertence à borda da requisição. Com o commit no repositório, a resposta à pergunta "qual
+é a unidade de trabalho desta API?" passa a ser "não há nenhuma" — verdadeira hoje, e frágil no dia
+em que uma rota fizer duas escritas.
 
 **Por que não `AUTOCOMMIT` na engine.** É a menor superfície possível e faz o `INSERT` do clique ser
 durável sozinho. Mas fecha a porta para tornar dois statements atômicos sem trocar a engine, lê-se
@@ -100,11 +104,15 @@ de assunto.
 
 **O que cada rota faz, e o que uma falha em cada ponto produz.**
 
+Nenhuma das três é isenta: `sessionmaker.begin()` emite `COMMIT` também para uma transação que só
+leu — confirmado ligando o log do SQLAlchemy, que registra `BEGIN (implicit)` e `COMMIT` num
+`GET /links/{code}`. Não há nada a gravar, mas há um round trip que pode falhar.
+
 | Rota | Statements na transação | Falha no commit |
 |---|---|---|
 | `POST /links` | `SELECT` por hash, `nextval`, `INSERT ... ON CONFLICT` | `500`, e nada fica |
 | `GET /{code}` | `SELECT` do link, `INSERT` do clique | `500` — a decisão da Fase 2 |
-| `GET /links/{code}` | dois `SELECT`s | um commit sem escrita não falha |
+| `GET /links/{code}` | dois `SELECT`s | `500` — nada a desfazer, e ainda assim um `COMMIT` |
 
 **O `nextval` é a exceção, e é intencional.** Uma sequence não obedece a rollback: o valor lido no
 passo 3 é gasto mesmo que a transação inteira volte atrás. O buraco resultante é esperado e
@@ -120,7 +128,9 @@ esta ADR teria trocado toda recusa de negócio por um `500`.
 
 - **Dependência `yield` com o escopo default.** Não adotada, e é a armadilha que esta ADR existe
   para registrar: o código idêntico, sem a palavra `scope`, entrega ao cliente o `302` de um
-  redirect que não gravou nada. Nenhum teste do projeto reprovaria.
+  redirect que não gravou nada. Nada no comportamento visível denuncia a troca, e é por isso que
+  existe um teste lendo o `scope` declarado na rota — sem ele, apagar a palavra não reprovaria
+  nada.
 - **Commitar dentro de `save` e de `record`.** Não adotada: contradiz a docstring da porta e apaga a
   noção de unidade de trabalho. Veja a justificativa.
 - **`create_engine(..., isolation_level="AUTOCOMMIT")`.** Não adotada: menor superfície, ao custo de
@@ -141,8 +151,9 @@ esta ADR teria trocado toda recusa de negócio por um `500`.
 - Um erro em qualquer ponto da escrita sai no envelope Problem Details do projeto, porque acontece
   enquanto ainda existe resposta para trocar.
 - `application` e `domain` não mudam uma linha. A ADR inteira mora em um arquivo do adaptador.
-- O redirect lê o link e grava o clique na mesma transação e no mesmo snapshot, sem que nenhum caso
-  de uso precise saber disso.
+- O redirect lê o link e grava o clique na mesma transação, sem que nenhum caso de uso precise
+  saber disso. Na mesma transação e não no mesmo *snapshot*: sob `READ COMMITTED` cada statement
+  tira um snapshot novo, que é precisamente o que faz a releitura do passo 4 enxergar o vencedor.
 
 **Negativas / custos:**
 
@@ -151,9 +162,12 @@ esta ADR teria trocado toda recusa de negócio por um `500`.
   um teste que lê o `scope` declarado na rota e afirma `"function"` — ele não prova o comportamento,
   prova que a palavra não foi apagada; o comportamento é o que o experimento acima mediu, e o que um
   teste de integração da Fase 5 pode envenenar de propósito.
-- **`dependency_overrides` não consegue simular isso.** O escopo é lido do `Depends` original, então
-  um override troca a dependência mas não o momento em que ela encerra. Um teste unitário não
-  alcança essa ordenação.
+- **O escopo é lido do `Depends` original, e não do override.** Isso corta dos dois lados, e a
+  primeira versão desta ADR só registrou um deles. Um `dependency_overrides` não consegue *mudar* o
+  momento em que a dependência encerra — mas justamente por herdá-lo, um override cujo teardown
+  levanta **reproduz** a ordenação: medido, ele responde `500` sob `scope="function"` e `200` sob o
+  default. Um teste unitário alcança a ordenação; o que ele não alcança é envenenar o `COMMIT` real,
+  que é a versão da Fase 5 desta verificação.
 - **Uma transação por requisição significa uma conexão segurada durante a rota inteira**, inclusive
   enquanto o FastAPI serializa a resposta. No tamanho deste projeto é irrelevante; num que faça I/O
   externo no meio do handler, não seria.
