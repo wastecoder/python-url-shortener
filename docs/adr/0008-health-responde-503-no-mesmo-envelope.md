@@ -19,10 +19,18 @@ separadas. `500` é **esta API falhando**; `503` é **esta API não conseguindo 
 que ela depende está fora**. Só o primeiro é bug desta API, e só o segundo é acionável por um
 balanceador sem acordar ninguém.
 
-Há ainda um detalhe de forma que decide se o `503` é sequer alcançável. Uma dependência do FastAPI
-cuja **aquisição** falha levanta antes de o corpo do controller rodar, e isso vai para o handler
-genérico. Um `/health` que dependesse da `Session` da requisição responderia `500` exatamente na
-única situação que ele existe para relatar.
+Há ainda a pergunta de **em que** o endpoint se apoia para responder, e ela tem uma armadilha que
+esta ADR errou na primeira versão. O argumento original era: uma dependência do FastAPI cuja
+*aquisição* falha levanta antes do corpo do controller, então um `/health` sobre a `Session` da
+requisição responderia `500` na única situação que ele existe para relatar. **Isso é falso, e foi
+medido:** `sessionmaker.begin()` não conecta, então adquirir uma sessão contra um banco morto não
+falha — a falha cairia no `execute`, dentro do controller, onde daria para tratar.
+
+O que continua verdadeiro, e é o motivo real, é outra coisa: uma sessão sai do **pool** das
+requisições, e um checkout de pool esgotado não falha rápido — ele *espera*, até `pool_timeout`,
+trinta segundos por padrão. Um `/health` assim penduraria por meio minuto e depois chamaria o banco
+de indisponível porque este processo estava ocupado: um relato sobre a carga local, publicado como
+um relato sobre o PostgreSQL.
 
 ## Decisão
 
@@ -34,17 +42,23 @@ negócio; o domínio não conhece HTTP nem banco, e nenhum módulo dele importa 
 
 **3. O `/health` depende de um `HealthProbe`, e o `HealthProbe` devolve `bool`.** O `Protocol` fica
 ao lado do controller que o consome, em `adapter/web/`; quem o satisfaz é o `DatabaseProbe`, em
-`adapter/persistence/database/`. A implementação abre uma conexão curta pela engine, roda
-`SELECT 1`, e converte qualquer `SQLAlchemyError` em `False`, registrando a causa no log.
+`adapter/persistence/database/`. A implementação abre uma conexão, roda `SELECT 1`, e converte
+qualquer `SQLAlchemyError` em `False`, registrando a causa no log.
 
-**4. O probe fica fora da transação da requisição**, e adquiri-lo não pode falhar: `create_engine`
-não conecta, então a dependência sempre resolve e a decisão 200-ou-503 acontece dentro do corpo do
-controller, onde ela é alcançável.
+**4. O probe roda sobre uma engine própria, com `NullPool`.** É a segunda engine da aplicação,
+construída no mesmo lifespan e descartada com a outra. Sem pool não há fila: cada checagem abre e
+fecha sua conexão, e o `connect_timeout` passa a ser o limite real de quanto o endpoint pode
+demorar. Compartilhar a engine das requisições faria o `/health` esperar no mesmo `QueuePool`, que é
+exatamente o defeito descrito no Contexto — e foi o que a primeira implementação fez, até uma
+revisão medi-lo.
 
-**5. É o único `503` da API.** As três rotas de negócio continuam respondendo `500` quando o banco
+**5. Adquirir o probe não pode falhar**: é uma leitura de atributo e um construtor. A decisão
+200-ou-503 acontece portanto dentro do corpo do controller, onde ela é alcançável.
+
+**6. É o único `503` da API.** As três rotas de negócio continuam respondendo `500` quando o banco
 cai.
 
-**6. O corpo de sucesso não muda.** Um `/health` saudável continua respondendo
+**7. O corpo de sucesso não muda.** Um `/health` saudável continua respondendo
 `200 {"status": "ok"}` em `application/json`; só o caminho de falha entra no envelope de erro.
 
 ## Justificativa
@@ -84,11 +98,11 @@ mudança entraria, se um dia valer.
 
 ## Alternativas consideradas
 
-- **`/health` dependendo da mesma `SessionDep` das outras rotas.** Não adotada, e é a mais
-  importante de registrar: uma falha de conexão levantaria durante a resolução da dependência, antes
-  do corpo do controller, e a resposta seria `500`. O ramo `503` seria inalcançável — o endpoint
-  responderia certo só enquanto não houvesse nada para relatar. Além disso alistaria o `/health` na
-  transação da requisição, fazendo-o falhar por esgotamento de pool.
+- **`/health` dependendo da mesma `SessionDep` das outras rotas.** Não adotada, por dois motivos —
+  e nenhum deles é o que esta ADR alegava a princípio. Alistaria o `/health` na transação da
+  requisição, sobre a qual ele não deveria reportar; e o tiraria do pool das requisições, onde um
+  checkout espera `pool_timeout` antes de desistir. O motivo que **não** vale é o que estava escrito
+  aqui: a aquisição não falha, porque `sessionmaker.begin()` não conecta.
 - **Injetar a `Engine` direto no controller.** Não adotada, e é a alternativa mais próxima: está
   correta e é menor. Perde na testabilidade — para exercitar o ramo `200` sem Docker a suíte teria
   de forjar um objeto `Engine`, que é desajeitado de construir, e na prática um dos dois ramos
@@ -119,8 +133,11 @@ mudança entraria, se um dia valer.
   passa a declarar `["200", "503"]`, e o teste que fixava `["200"]` muda junto.
 - **Um `Protocol` dentro do adaptador é incomum**, e convida à pergunta "por que isso não é uma
   porta?". A resposta está na justificativa, e precisa estar pronta.
-- Cada chamada ao `/health` abre e fecha uma conexão própria, fora do pool da requisição. Num health
-  check batido de segundo em segundo isso é uma conexão por segundo — irrelevante nesta escala, e é
-  o preço de o endpoint não depender da transação sobre a qual ele reporta.
+- Cada chamada ao `/health` abre e fecha uma conexão, porque a engine do probe usa `NullPool`. Num
+  health check batido de segundo em segundo isso é uma conexão por segundo — irrelevante nesta
+  escala, e é o preço de o endpoint não ficar na fila do pool sobre o qual ele reporta.
+- **Duas engines por processo**, e portanto duas coisas para o lifespan descartar. Um teste afirma
+  que as duas são descartadas no shutdown, porque esquecer a segunda seria um vazamento que só
+  aparece depois de muitos reinícios.
 - Um sexto handler registrado à mão, com o mesmo `type: ignore[arg-type]` que quatro dos cinco
   atuais carregam, pela contravariância da assinatura que o Starlette declara.

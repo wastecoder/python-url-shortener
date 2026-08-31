@@ -235,17 +235,18 @@ even in tests. Tests run the same migrations production runs.
 | `POST` | `/links` | `201 Created` (new) or `200 OK` (dedup hit) | body: `code`, `short_url`, `url`, `created_at`; `Location` header on `201` |
 | `GET` | `/{code}` | `302 Found` | `Location: <long url>`; records the click |
 | `GET` | `/links/{code}` | `200 OK` | body: `code`, `short_url`, `url`, `created_at`, `total_clicks` |
-| `GET` | `/health` | `200 OK` / `503` | runs `SELECT 1` against the database from Fase 4 onward |
+| `GET` | `/health` | `200 OK` / `503` | runs `SELECT 1` on an engine of its own, with no pool |
 
 `201` versus `200` on `POST /links` is deliberate: `201` means a link was created, `200` means an
 existing one was returned. The caller can tell the difference.
 
 `/health` **checks its dependency** — a health check that always answers `200` is a lie, and it is
-the difference between this endpoint and a real Actuator. It runs `SELECT 1` on a connection of
-its own and answers `503` when the database does not respond. The connection is deliberately not
-the request's session: enlisted in that transaction, the endpoint would fail whenever the pool was
-busy, and — worse — a session that cannot connect raises while the dependency is being *acquired*,
-before the controller runs, which the generic handler would answer as `500`. ADR-0008.
+the difference between this endpoint and a real Actuator. It runs `SELECT 1` and answers `503` when
+the database does not respond. It does so on **a second engine, with no pool**, and that shape is
+the decision: the request session would enlist the endpoint in the transaction it reports on, and
+the request engine would put it in the queue of a pool that load has exhausted — where a checkout
+waits `pool_timeout` before giving up, so the endpoint would hang and then blame PostgreSQL for
+this process being busy. ADR-0008.
 
 `short_url` is built from the `BASE_URL` setting — the API never guesses its own public host.
 
