@@ -168,7 +168,7 @@ consultar nada**. Esta lista é também o roteiro da entrevista.
 - [ ] `adapter/config/dependencies.py`: a fiação por `Depends`, num lugar só. Os controllers dependem das portas `inbound`, nunca dos `*Impl`
 - [ ] `adapter/config/clock.py` com `SystemClock`
 - [ ] `main.py`: registra os exception handlers, depois os routers, com o `redirect_controller` **por último** — o catch-all na raiz engole `/links`, `/health` e `/docs` se vier antes
-- [ ] Testes de API com `httpx.AsyncClient` sobre `ASGITransport`, sobrescrevendo as dependências pelos fakes da Fase 2. Rápidos, sem Docker, e ficam no conjunto de testes unitários
+- [ ] Testes de API com `fastapi.testclient.TestClient`, sobrescrevendo as dependências pelos fakes da Fase 2. Rápidos, sem Docker, e ficam no conjunto de testes unitários. **Era `httpx.AsyncClient` sobre `ASGITransport`, e estava errado:** aquilo exige teste `async def` e `pytest-asyncio`, os dois proibidos pela regra síncrona do `CLAUDE.md`, que é o documento que manda. Corrigido na Fase 2, que é a fase em que o modelo síncrono virou assinatura em toda porta — deixar para a Fase 3 seria descobrir a contradição com o `uv add --dev pytest-asyncio` à mão
 - **Critério:** `uv run uvicorn url_shortener.main:app --reload` sobe; `/docs` lista as quatro rotas **e continua acessível**, que é a prova de que o catch-all não engoliu nada; `GET /{code}` de um código conhecido devolve `302` com `Location`; um corpo inválido devolve `application/problem+json`. O passeio manual com `curl` e as respostas observadas ficam registrados em subitem.
 - **Documento de aprendizado:** `docs/learning/fase-3-adapter-web.md`
 
