@@ -7,6 +7,8 @@ characters long. The documentation routes survive any ordering of ours, because 
 registers them before `create_app` includes anything; they are asserted here anyway, since that is
 a fact about the framework and not about this code.
 
+The suite also reads the generated document itself. This project calls `/docs` its user interface,
+so a document that describes a different API than the one running is a defect in the interface.
 """
 
 from http import HTTPStatus
@@ -16,6 +18,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from url_shortener.adapter.web import health_controller, link_controller, redirect_controller
+from url_shortener.adapter.web.handler.problem_details import PROBLEM_MEDIA_TYPE
 
 
 def _included_routers(app: FastAPI) -> list[object]:
@@ -120,6 +123,60 @@ def test_the_root_itself_is_not_a_code(client: TestClient) -> None:
     assert response.json()["type"] == "http-error"
 
 
+def test_the_documented_responses_are_the_ones_the_api_can_send(app: FastAPI) -> None:
+    """
+    Given the generated document,
+    when the declared responses of each operation are listed,
+    then they are exactly what each route can answer.
+
+    This is what keeps `/docs` from drifting: deleting `status_code=HTTPStatus.FOUND` from the
+    redirect decorator makes the document advertise 307 on the one route whose headline decision
+    is "302, never 307", and without this assertion nothing notices.
+    """
+    paths = app.openapi()["paths"]
+
+    assert sorted(paths["/links"]["post"]["responses"]) == ["200", "201", "400", "422"]
+    assert sorted(paths["/links/{code}"]["get"]["responses"]) == ["200", "404"]
+    assert sorted(paths["/{code}"]["get"]["responses"]) == ["302", "404"]
+    assert sorted(paths["/health"]["get"]["responses"]) == ["200"]
+
+
+def test_every_documented_error_body_is_a_problem_document(app: FastAPI) -> None:
+    """
+    Given the generated document,
+    when the media type of every error response is read,
+    then it is application/problem+json -- the one the API actually serves. FastAPI files a
+    `responses={"model": ProblemResponse}` entry under the route's own media type, which is
+    application/json, so `create_app` corrects the document before caching it.
+    """
+    for path, operations in app.openapi()["paths"].items():
+        for method, operation in operations.items():
+            for status, response in operation["responses"].items():
+                if int(status) < HTTPStatus.BAD_REQUEST or "content" not in response:
+                    continue
+                assert list(response["content"]) == [PROBLEM_MEDIA_TYPE], (
+                    f"{method} {path} {status}"
+                )
+
+
+def test_the_document_never_mentions_fastapis_own_error_shape(app: FastAPI) -> None:
+    """
+    Given the generated document,
+    when it is searched for FastAPI's default validation envelope,
+    then it is absent -- neither advertised on a route nor left orphaned in the components.
+
+    FastAPI injects a 422 pointing at `HTTPValidationError` into every operation that takes a
+    parameter. On the two `{code}` routes that response cannot happen, and the shape it promises is
+    the `{"detail": [...]}` body this phase replaced, so `/docs` would be contradicting the API it
+    documents.
+    """
+    document = app.openapi()
+
+    assert "HTTPValidationError" not in str(document["paths"])
+    assert "HTTPValidationError" not in document["components"]["schemas"]
+    assert "ValidationError" not in document["components"]["schemas"]
+
+
 def test_a_trailing_slash_is_refused_rather_than_redirected(client: TestClient) -> None:
     """
     Given a path that only differs from a route by a trailing slash,
@@ -135,3 +192,16 @@ def test_a_trailing_slash_is_refused_rather_than_redirected(client: TestClient) 
         response = client.get(path)
         assert response.status_code == HTTPStatus.NOT_FOUND, path
         assert "location" not in response.headers, path
+
+
+def test_the_module_level_app_is_the_one_uvicorn_is_told_to_serve() -> None:
+    """
+    Given the entrypoint documented in the command table, `url_shortener.main:app`,
+    when it is imported,
+    then it is an application carrying the routes -- the assertion that the name the run command
+    depends on cannot be deleted or renamed without something failing.
+    """
+    from url_shortener.main import app as entrypoint
+
+    assert isinstance(entrypoint, FastAPI)
+    assert _paths(entrypoint)[-1] == "/{code}"

@@ -11,10 +11,20 @@ it as a fourth layer would mean editing `.importlinter`, which this project requ
 to constrain twenty lines that exist to import things.
 """
 
+from typing import Any
+
 from fastapi import FastAPI
 
 from url_shortener.adapter.web import health_controller, link_controller, redirect_controller
-from url_shortener.adapter.web.handler.problem_details import register_exception_handlers
+from url_shortener.adapter.web.handler.problem_details import (
+    PROBLEM_MEDIA_TYPE,
+    register_exception_handlers,
+)
+
+_PROBLEM_SCHEMA_REF = "#/components/schemas/ProblemResponse"
+_FASTAPI_VALIDATION_SCHEMA_REFS = frozenset(
+    {"#/components/schemas/HTTPValidationError", "#/components/schemas/ValidationError"}
+)
 
 
 def create_app() -> FastAPI:
@@ -48,7 +58,51 @@ def create_app() -> FastAPI:
     app.include_router(health_controller.router)
     app.include_router(redirect_controller.router)
 
+    # Generated once here and cached on the app, because `openapi()` hands back `openapi_schema`
+    # whenever it is already set.
+    app.openapi_schema = _describe_errors_accurately(app.openapi())
+
     return app
+
+
+def _describe_errors_accurately(document: dict[str, Any]) -> dict[str, Any]:
+    """Make the generated document say what the error path actually does.
+
+    Two corrections, and both exist because this project calls the generated `/docs` its user
+    interface. A document that describes a different API than the one running is worse than no
+    document, because a reader has no way of telling which half is true.
+
+    **The media type.** FastAPI files every `responses={...: {"model": ProblemResponse}}` entry
+    under the route's own media type, which is `application/json`. All of those bodies are served
+    as `application/problem+json`. Declaring `content` by hand on each route does not fix it --
+    FastAPI merges its own entry alongside, leaving two, one of which is wrong.
+
+    **The phantom 422.** FastAPI injects a `422` pointing at its own `HTTPValidationError` into
+    every operation that takes a parameter, unless the route already declares one. On
+    `GET /links/{code}` and `GET /{code}` that response can never happen -- `code` is a plain
+    `str` and every path segment is one -- and the shape it advertises is the `{"detail": [...]}`
+    envelope this phase exists to replace. Declaring a 422 on those routes would silence it by
+    documenting a different impossible response, so the injected one is removed instead, together
+    with the schemas left with nothing pointing at them.
+    """
+    for path_item in document["paths"].values():
+        for operation in path_item.values():
+            responses = operation.get("responses", {})
+            for status, response in list(responses.items()):
+                content = response.get("content", {})
+                reference = content.get("application/json", {}).get("schema", {}).get("$ref")
+                if reference in _FASTAPI_VALIDATION_SCHEMA_REFS:
+                    del responses[status]
+                elif reference == _PROBLEM_SCHEMA_REF:
+                    content[PROBLEM_MEDIA_TYPE] = content.pop("application/json")
+
+    schemas = document.get("components", {}).get("schemas", {})
+    still_referenced = str(document["paths"])
+    for name in ("HTTPValidationError", "ValidationError"):
+        if name in schemas and f"#/components/schemas/{name}" not in still_referenced:
+            del schemas[name]
+
+    return document
 
 
 app = create_app()
