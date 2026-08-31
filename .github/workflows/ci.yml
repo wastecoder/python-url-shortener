@@ -1,6 +1,13 @@
-# Lean pipeline: no Docker, runs in seconds, and blocks merge from the first pull request.
-# The integration job (Testcontainers) joins in Fase 5 and the image build in Fase 6, when there
-# is something for them to run. A job that runs nothing proves nothing.
+# Two jobs, and the split is the same one the test suite makes.
+#
+# `check` needs no Docker and finishes in seconds: it is everything that can be decided by reading
+# the code, plus the fast test suite, plus the coverage gate on the two layers that suite can
+# reach. `integration` starts a real PostgreSQL and runs everything, and carries the gate on the
+# whole tree.
+#
+# They do not depend on each other. A lint error and a broken redirect are independent facts, and
+# a pull request that has both should be told both at once rather than one round trip at a time.
+# The image build joins in Fase 6.
 
 name: CI
 
@@ -43,5 +50,54 @@ jobs:
       - name: Architecture
         run: uv run lint-imports
 
+      # `--cov-report=` empties the report here: the numbers are printed by the gate below, so
+      # they appear once, next to the threshold they are being judged against.
       - name: Unit tests
-        run: uv run pytest
+        run: uv run pytest --cov --cov-report=
+
+      # The gate that matters, and the reason there are two of them rather than one average.
+      # `domain` and `application` are where this project's decisions live, and they are fully
+      # reachable with no database running -- so a hole here is never "the infrastructure was not
+      # up", it is a rule nobody tested. A single number over the whole tree would let a
+      # thoroughly tested adapter pay for an untested domain, which is exactly backwards.
+      #
+      # 100 with no slack. When a line is genuinely unreachable it gets `# pragma: no cover` and a
+      # comment saying why, which puts the exception in the diff where a reviewer sees it, instead
+      # of hiding it inside a threshold nobody revisits.
+      - name: Coverage of the domain and the application
+        run: >
+          uv run coverage report
+          --include="src/url_shortener/domain/*,src/url_shortener/application/*"
+          --fail-under=100
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # There is deliberately no `services:` block anywhere in this file. `ubuntu-latest` already
+      # runs a Docker daemon, and Testcontainers starts, migrates and throws away its own
+      # PostgreSQL from inside the test session -- which is the whole point: the container is
+      # declared by the code that needs it, at the version that code pins, and nothing in CI has
+      # to be kept in step with `compose.yml` by hand.
+      #
+      # `-m ""` runs both suites in one process, and not out of convenience: coverage of the
+      # adapter only exists when the integration tests have run, and combining two data files
+      # across two jobs would be machinery bought for a suite that takes fifteen seconds.
+      - name: Every test, against a real PostgreSQL
+        run: uv run pytest -m "" --cov --cov-report=
+
+      # The second gate. Same number as the one above and a different promise: this one covers the
+      # adapter, `main.py` and the wiring, and it is the one that may be argued down in a pull
+      # request that explains why. The domain gate is not.
+      - name: Coverage of the whole tree
+        run: uv run coverage report --fail-under=100
