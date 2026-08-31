@@ -12,6 +12,7 @@ so a document that describes a different API than the one running is a defect in
 """
 
 from http import HTTPStatus
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
@@ -19,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from url_shortener.adapter.web import health_controller, link_controller, redirect_controller
 from url_shortener.adapter.web.handler.problem_details import PROBLEM_MEDIA_TYPE
+from url_shortener.main import _describe_errors_accurately
 
 
 def _included_routers(app: FastAPI) -> list[object]:
@@ -205,3 +207,45 @@ def test_the_module_level_app_is_the_one_uvicorn_is_told_to_serve() -> None:
 
     assert isinstance(entrypoint, FastAPI)
     assert _paths(entrypoint)[-1] == "/{code}"
+
+
+def test_a_validation_schema_something_still_points_at_is_not_removed() -> None:
+    """
+    Given a document whose components carry a validation schema a path still references,
+    when the corrections are applied,
+    then the schema survives, and the one nothing references is dropped.
+
+    The cleanup exists to remove schemas left dangling once the injected 422s are gone, and the
+    condition it must not break is this one: a `$ref` pointing at a schema that is no longer there
+    is a broken document, which is worse than an unused definition sitting in it.
+
+    Asserted against the function rather than against the generated document because this
+    application's own routes cannot produce the case -- every reference to those two schemas comes
+    from a response this pass deletes. A branch that only a hypothetical document reaches is still
+    a branch, and leaving it unexercised would mean the guard `name in schemas` is never once
+    observed doing its job.
+    """
+    document: dict[str, Any] = {
+        "paths": {
+            "/somewhere": {
+                "post": {
+                    "responses": {
+                        "422": {
+                            "content": {
+                                # Not `application/json`, so the first pass leaves it alone and the
+                                # reference is still live when the cleanup runs.
+                                PROBLEM_MEDIA_TYPE: {
+                                    "schema": {"$ref": "#/components/schemas/ValidationError"}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "components": {"schemas": {"ValidationError": {}, "HTTPValidationError": {}}},
+    }
+
+    corrected = _describe_errors_accurately(document)
+
+    assert set(corrected["components"]["schemas"]) == {"ValidationError"}
