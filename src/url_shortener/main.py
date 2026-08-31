@@ -20,6 +20,7 @@ from fastapi import FastAPI
 from url_shortener.adapter.config.settings import Settings, get_settings
 from url_shortener.adapter.persistence.database.session import (
     create_database_engine,
+    create_probe_engine,
     create_session_factory,
 )
 from url_shortener.adapter.web import health_controller, link_controller, redirect_controller
@@ -46,9 +47,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     error, on a machine that has no reason to own a database. Startup is the moment the phrase
     "fail loudly at startup" actually names, and it is the moment nothing imports.
 
-    **And where the engine is built and disposed.** One engine per application, so the pool is
-    shared by every request instead of rebuilt per request; disposed on the way out, so a reloader
-    does not leave a pool of connections behind on every restart. Building it opens nothing.
+    **And where the two engines are built and disposed.** One pooled engine for the requests, so
+    the pool is shared instead of rebuilt per request, and one poolless engine for `/health`, so
+    the health check never waits on the request pool. Both are disposed on the way out, or a
+    reloader leaves a set of connections behind on every restart. Building either opens nothing.
 
     It is `async def`, which is the one place in this project that is, and it is not a crack in the
     synchronous runtime model: ASGI defines the lifespan hook as an async context manager, and the
@@ -68,10 +70,17 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
 
+    # A second engine, poolless, for `/health` alone. Sharing the first one would make the health
+    # check wait on the request pool and then report the *process* being saturated as the
+    # *database* being down. See `create_probe_engine`.
+    probe_engine = create_probe_engine(resolved.database_url)
+    app.state.probe_engine = probe_engine
+
     try:
         yield
     finally:
         engine.dispose()
+        probe_engine.dispose()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

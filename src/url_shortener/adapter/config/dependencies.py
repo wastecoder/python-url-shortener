@@ -97,11 +97,16 @@ def get_click_repository(session: SessionDep) -> ClickRepository:
 def get_health_probe(request: Request) -> HealthProbe:
     """What `/health` asks about the database.
 
-    It takes the engine and not the session, so the endpoint stays outside the request transaction.
+    It takes an engine and not a session, and a **different** engine from the one the requests use.
+    Both halves matter. Not a session, because the endpoint must stay outside the request
+    transaction. Not the request engine either, because that one has a pool: a checkout from an
+    exhausted pool waits up to `pool_timeout` and then fails, so `/health` would hang and report a
+    saturated *process* as an unreachable *database*. The probe engine is poolless.
+
     Building it cannot fail -- an attribute read and a constructor -- which is what leaves the
     200-or-503 decision inside the controller body, where the 503 branch is reachable. ADR-0008.
     """
-    engine: Engine = request.app.state.engine
+    engine: Engine = request.app.state.probe_engine
     return DatabaseProbe(engine)
 
 
