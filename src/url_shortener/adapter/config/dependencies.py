@@ -7,41 +7,34 @@ and nowhere else.
 
 Every provider is annotated with the port it returns and not with the class it builds, and the
 annotation is doing work rather than describing: it is what makes `mypy` verify that
-`InMemoryLinkRepository` really satisfies `LinkRepository` and that `CreateLinkUseCaseImpl` really
+`LinkRepositoryImpl` really satisfies `LinkRepository` and that `CreateLinkUseCaseImpl` really
 satisfies `CreateLinkUseCase`. The ports are `Protocol`s, so nothing inherits from them and
-structural conformance is only worth something where a type checker reads it. This file is where
-it reads it, for production code -- `tests/fakes.py` does the same for the test doubles.
+structural conformance is only worth something where a type checker reads it. This file is where it
+reads it, for production code -- `tests/fakes.py` does the same for the test doubles.
 
-`@lru_cache` on the three driven ports makes them process-wide singletons, which is what an
-in-memory store has to be: built per request, every request would get an empty database. The use
-case providers are deliberately **not** cached -- they are three-line objects holding references,
-and caching them would only hide which collaborators each one was given.
+**The transaction boundary is `get_session`, and it is the subject of ADR-0007.** One session per
+request, shared by both repositories through FastAPI's sub-dependency cache, so the `SELECT` of a
+link and the `INSERT` of its click are genuinely one transaction. The `scope="function"` is the
+whole decision in one word: without it the session's exit code runs *after* the response has been
+sent, and a `COMMIT` that fails then has no response left to change -- the caller would already
+hold a `302` for a redirect that recorded nothing.
 
-**In Fase 4 the repository swap is this file, plus deleting one module.** The two repository
-providers stop returning the in-memory implementations and start returning the SQLAlchemy ones,
-bound to a request-scoped session; `adapter/persistence/in_memory_repositories.py` goes away; and
-the `@lru_cache` comes off those two, because it exists to make an in-memory store a process-wide
-singleton and would otherwise hand one session to every request. **No controller, no DTO and no
-handler moves for it**, and that is the demonstration the architecture is here to produce.
-
-The claim is about the swap and not about the whole phase, and the difference matters because
-`adapter/web/health_controller.py` *does* change in Fase 4 -- it stops answering a static `ok` and
-starts running `SELECT 1`. That is a new endpoint behaviour arriving, not a repository leaking
-upward, and it is written down in the Fase 4 section of `PROGRESS-V1.md` together with the test
-that has to be rewritten with it.
+`@lru_cache` survives on `get_clock` alone. A clock has no state, so one is as good as many. It
+came off the two repositories when they stopped being dictionaries: cached, they would hand a
+single request-scoped session to every request for the life of the process.
 """
 
+from collections.abc import Iterator
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
+from sqlalchemy.orm import Session, sessionmaker
 
 from url_shortener.adapter.config.clock import SystemClock
 from url_shortener.adapter.config.settings import Settings, get_settings
-from url_shortener.adapter.persistence.in_memory_repositories import (
-    InMemoryClickRepository,
-    InMemoryLinkRepository,
-)
+from url_shortener.adapter.persistence.click_repository_impl import ClickRepositoryImpl
+from url_shortener.adapter.persistence.link_repository_impl import LinkRepositoryImpl
 from url_shortener.application.port.inbound.create_link_use_case import CreateLinkUseCase
 from url_shortener.application.port.inbound.get_link_details_use_case import GetLinkDetailsUseCase
 from url_shortener.application.port.inbound.resolve_link_use_case import ResolveLinkUseCase
@@ -59,16 +52,40 @@ def get_clock() -> Clock:
     return SystemClock()
 
 
-@lru_cache
-def get_link_repository() -> LinkRepository:
-    """The store of links. In-memory until Fase 4, and a process-wide singleton because of it."""
-    return InMemoryLinkRepository()
+def get_session(request: Request) -> Iterator[Session]:
+    """One session, one transaction, for the duration of one request. ADR-0007.
+
+    The factory comes off `app.state`, where the lifespan put it, rather than from a module-level
+    singleton: an engine built at import time is a connection pool created as a side effect of an
+    `import`, which nothing can then opt out of.
+
+    `sessionmaker.begin()` rather than a hand-written `commit()` in a `try` -- a clean exit commits,
+    an exception rolls back, and both live in SQLAlchemy's own context manager instead of in four
+    lines somebody has to re-read to check.
+
+    The `scope="function"` is on the alias below, and it is what makes this run while there is still
+    a response to change. It is deliberately not the default.
+    """
+    factory: sessionmaker[Session] = request.app.state.session_factory
+    with factory.begin() as session:
+        yield session
 
 
-@lru_cache
-def get_click_repository() -> ClickRepository:
-    """The store of clicks. In-memory until Fase 4, and a process-wide singleton because of it."""
-    return InMemoryClickRepository()
+SessionDep = Annotated[Session, Depends(get_session, scope="function")]
+
+
+def get_link_repository(session: SessionDep) -> LinkRepository:
+    """The store of links, reading and writing inside this request's transaction."""
+    return LinkRepositoryImpl(session)
+
+
+def get_click_repository(session: SessionDep) -> ClickRepository:
+    """The store of clicks, reading and writing inside this request's transaction.
+
+    It is a second object over the *same* session, not a second session: FastAPI resolves
+    `SessionDep` once per request and hands the result to every dependency that asks for it.
+    """
+    return ClickRepositoryImpl(session)
 
 
 ClockDep = Annotated[Clock, Depends(get_clock)]
