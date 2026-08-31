@@ -29,12 +29,15 @@ from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends, Request
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from url_shortener.adapter.config.clock import SystemClock
 from url_shortener.adapter.config.settings import Settings, get_settings
 from url_shortener.adapter.persistence.click_repository_impl import ClickRepositoryImpl
+from url_shortener.adapter.persistence.database.probe import DatabaseProbe
 from url_shortener.adapter.persistence.link_repository_impl import LinkRepositoryImpl
+from url_shortener.adapter.web.health_probe import HealthProbe
 from url_shortener.application.port.inbound.create_link_use_case import CreateLinkUseCase
 from url_shortener.application.port.inbound.get_link_details_use_case import GetLinkDetailsUseCase
 from url_shortener.application.port.inbound.resolve_link_use_case import ResolveLinkUseCase
@@ -88,7 +91,21 @@ def get_click_repository(session: SessionDep) -> ClickRepository:
     return ClickRepositoryImpl(session)
 
 
+def get_health_probe(request: Request) -> HealthProbe:
+    """What `/health` asks about the database.
+
+    It takes the engine and not the session, and that is the whole shape of the endpoint: the probe
+    opens a connection of its own, outside the request transaction, so `/health` cannot fail for
+    reasons that belong to the requests it is reporting on. Building it cannot fail either --
+    reading an attribute and constructing an object -- which is what leaves the 200-or-503 decision
+    inside the controller, where it is reachable. ADR-0008.
+    """
+    engine: Engine = request.app.state.engine
+    return DatabaseProbe(engine)
+
+
 ClockDep = Annotated[Clock, Depends(get_clock)]
+HealthProbeDep = Annotated[HealthProbe, Depends(get_health_probe)]
 LinkRepositoryDep = Annotated[LinkRepository, Depends(get_link_repository)]
 ClickRepositoryDep = Annotated[ClickRepository, Depends(get_click_repository)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
