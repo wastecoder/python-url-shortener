@@ -62,13 +62,23 @@ class CreateLinkUseCaseImpl:
         # which is expected: the sequence is an id generator, not a count of links.
         winner = self._links.find_by_url_hash(url_hash)
         if winner is None:
-            # Should not be reachable under READ COMMITTED, which is PostgreSQL's default and what
-            # this project runs on: `ON CONFLICT DO NOTHING` waits on the conflicting inserter, so
-            # if that transaction aborted this insert proceeds instead, and if it committed the
-            # next statement takes a fresh snapshot that sees it -- and nothing in V1 ever deletes
-            # a link. It becomes reachable under REPEATABLE READ, where this read would keep the
-            # original snapshot. Those two preconditions are why the guard exists rather than an
-            # assertion, which `-O` would remove exactly when it mattered.
+            # Not reachable under READ COMMITTED, which the engine pins: `ON CONFLICT DO NOTHING`
+            # waits on the conflicting inserter, so if that transaction aborted this insert
+            # proceeds instead, and if it committed the next statement takes a fresh snapshot that
+            # sees it -- and nothing in V1 ever deletes a link.
+            #
+            # Nor under REPEATABLE READ, and that correction was measured rather than reasoned.
+            # This comment used to claim the opposite: that a repeatable-read snapshot would make
+            # the re-read find nothing. It would not, because the re-read never happens -- there
+            # the losing INSERT itself raises `SerializationFailure`, so the flow fails one line
+            # earlier and answers 500. The isolation level is not a nuance of this branch; it is a
+            # precondition of the whole deduplication design, which is why it is pinned on the
+            # engine instead of inherited from a server default.
+            #
+            # So the guard covers no path this project can produce, and it stays: it costs one
+            # branch, and without it a `None` would flow into `_as_result` and fail further away
+            # from its cause. An `if` and not an `assert`, because `-O` removes assertions exactly
+            # when they would matter.
             raise RuntimeError(
                 f"the unique index refused the insert for url hash {url_hash}, "
                 "and then no row carried that hash"
