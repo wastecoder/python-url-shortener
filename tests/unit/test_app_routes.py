@@ -1,10 +1,12 @@
 """The route table: the catch-all is registered last, and nothing it could swallow is swallowed.
 
 This is the suite that guards the load-bearing half of the design. `GET /{code}` matches any
-single path segment at the root, so registering it before `/links`, `/health` or the generated
-documentation would make every one of them resolve as a short code -- and each of those would then
-answer 404, because none of them is seven characters long. The failure is silent: every test that
-posts to `/links` would still fail, but a reviewer opening `/docs` is the one who finds out.
+single path segment at the root, so registering it before `/links` or `/health` would make both
+of them resolve as a short code -- and each would then answer 404, because neither is seven
+characters long. The documentation routes survive any ordering of ours, because `FastAPI.__init__`
+registers them before `create_app` includes anything; they are asserted here anyway, since that is
+a fact about the framework and not about this code.
+
 """
 
 from http import HTTPStatus
@@ -116,3 +118,20 @@ def test_the_root_itself_is_not_a_code(client: TestClient) -> None:
 
     assert response.status_code == HTTPStatus.NOT_FOUND
     assert response.json()["type"] == "http-error"
+
+
+def test_a_trailing_slash_is_refused_rather_than_redirected(client: TestClient) -> None:
+    """
+    Given a path that only differs from a route by a trailing slash,
+    when it is requested,
+    then it is a 404 in this API's own envelope, and not Starlette's convenience 307 -- whose
+    Location would be assembled from the caller's own Host header, which is the guess the whole
+    BASE_URL setting exists to avoid.
+    """
+    created = client.post("/links", json={"url": "https://example.com/a"})
+    code = created.json()["code"]
+
+    for path in ("/links/", f"/{code}/", f"/links/{code}/"):
+        response = client.get(path)
+        assert response.status_code == HTTPStatus.NOT_FOUND, path
+        assert "location" not in response.headers, path
