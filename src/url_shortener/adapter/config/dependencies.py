@@ -20,8 +20,11 @@ sent, and a `COMMIT` that fails then has no response left to change -- the calle
 hold a `302` for a redirect that recorded nothing.
 
 `@lru_cache` survives on `get_clock` alone. A clock has no state, so one is as good as many. It
-came off the two repositories when they stopped being dictionaries: cached, they would hand a
-single request-scoped session to every request for the life of the process.
+came off the two repositories when they stopped being dictionaries, and the reason is worth stating
+correctly: `lru_cache` keys on the arguments, and these providers now take a `Session`, so it would
+not hand one session to everybody -- it would keep one repository *per session*, for ever, holding
+a reference to every session the process has ever opened. A memory leak rather than a shared store,
+which is a different bug and a worse one to find.
 """
 
 from collections.abc import Iterator
@@ -33,7 +36,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from url_shortener.adapter.config.clock import SystemClock
-from url_shortener.adapter.config.settings import Settings, get_settings
+from url_shortener.adapter.config.settings import Settings
 from url_shortener.adapter.persistence.click_repository_impl import ClickRepositoryImpl
 from url_shortener.adapter.persistence.database.probe import DatabaseProbe
 from url_shortener.adapter.persistence.link_repository_impl import LinkRepositoryImpl
@@ -94,21 +97,32 @@ def get_click_repository(session: SessionDep) -> ClickRepository:
 def get_health_probe(request: Request) -> HealthProbe:
     """What `/health` asks about the database.
 
-    It takes the engine and not the session, and that is the whole shape of the endpoint: the probe
-    opens a connection of its own, outside the request transaction, so `/health` cannot fail for
-    reasons that belong to the requests it is reporting on. Building it cannot fail either --
-    reading an attribute and constructing an object -- which is what leaves the 200-or-503 decision
-    inside the controller, where it is reachable. ADR-0008.
+    It takes the engine and not the session, so the endpoint stays outside the request transaction.
+    Building it cannot fail -- an attribute read and a constructor -- which is what leaves the
+    200-or-503 decision inside the controller body, where the 503 branch is reachable. ADR-0008.
     """
     engine: Engine = request.app.state.engine
     return DatabaseProbe(engine)
+
+
+def get_active_settings(request: Request) -> Settings:
+    """The settings this application was started with.
+
+    Read off `app.state`, where the startup hook put them, rather than by calling `get_settings()`
+    again. The two are the same object in production and are **not** the same object when a caller
+    hands `create_app` its own -- and the difference was a real defect: with the environment reader
+    wired here, an application built with explicit settings still went to the environment on every
+    request, and a `POST /links` with no `BASE_URL` answered 500. One resolved object, one path.
+    """
+    settings: Settings = request.app.state.settings
+    return settings
 
 
 ClockDep = Annotated[Clock, Depends(get_clock)]
 HealthProbeDep = Annotated[HealthProbe, Depends(get_health_probe)]
 LinkRepositoryDep = Annotated[LinkRepository, Depends(get_link_repository)]
 ClickRepositoryDep = Annotated[ClickRepository, Depends(get_click_repository)]
-SettingsDep = Annotated[Settings, Depends(get_settings)]
+SettingsDep = Annotated[Settings, Depends(get_active_settings)]
 
 
 def get_create_link_use_case(links: LinkRepositoryDep, clock: ClockDep) -> CreateLinkUseCase:
