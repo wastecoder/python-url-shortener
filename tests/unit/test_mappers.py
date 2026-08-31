@@ -21,7 +21,9 @@ from url_shortener.domain.service.url_hash import hash_url
 
 URL = "https://example.com/a-fairly-long-target"
 DIGEST = hash_url(URL)
-NOW = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
+# Microseconds and a non-zero minute on purpose: a round trip asserted against a whole-second
+# instant survives a mapper that truncates, and TIMESTAMPTZ keeps microseconds.
+NOW = datetime(2026, 8, 31, 12, 34, 56, 789012, tzinfo=UTC)
 
 # An id whose code carries letters of both cases, and not `1` -- whose code is `0000001`, where
 # every assertion about the code would survive a mapper that upper-cased or lower-cased it. Base 62

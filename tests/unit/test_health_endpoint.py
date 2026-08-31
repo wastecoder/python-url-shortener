@@ -7,14 +7,18 @@ not weaker but narrower: the route declares exactly one dependency, and it is th
 """
 
 from http import HTTPStatus
+from pathlib import Path
 
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
 
 from tests.fakes import StubHealthProbe
 from url_shortener.adapter.config.dependencies import get_health_probe, get_session
+from url_shortener.adapter.config.settings import Settings
 from url_shortener.adapter.web import health_controller
 from url_shortener.adapter.web.handler.problem_details import PROBLEM_MEDIA_TYPE
+from url_shortener.main import create_app
 
 
 def _health_route() -> APIRoute:
@@ -113,11 +117,17 @@ def test_health_is_not_enlisted_in_the_request_transaction() -> None:
     when its whole dependency tree is walked,
     then the request session is nowhere in it.
 
-    Two failures are avoided by this and they are different. A `/health` holding a session would
-    report unhealthy whenever the pool was busy, which is a fact about load. Worse, a session that
-    cannot connect raises while the dependency is being *acquired* -- before this controller runs --
-    so the answer would be a 500 from the generic handler, in the exact situation the endpoint
-    exists to report as 503.
+    A `/health` holding the request session would report on the wrong thing twice over. It would
+    run its `SELECT 1` inside the transaction it is supposed to be independent of, and it would take
+    a connection from the request pool -- where an exhausted pool does not fail fast but *waits*, up
+    to `pool_timeout`, so the endpoint would hang and then call the database unreachable because
+    this process was busy.
+
+    Measured, and worth writing down because the obvious argument for this is wrong:
+    `sessionmaker.begin()` does **not** connect, so acquiring a session against a dead database
+    does not fail. The failure would land on `session.execute`, inside the controller, where it
+    could have been caught. The reason to keep the session out is the pool and the transaction, not
+    an unreachable 503.
     """
     route = _health_route()
     reached = {dependency.call for dependency in route.dependant.dependencies}
@@ -138,3 +148,35 @@ def test_the_health_document_advertises_both_answers(client: TestClient) -> None
 
     assert sorted(responses) == ["200", "503"]
     assert list(responses["503"]["content"]) == [PROBLEM_MEDIA_TYPE]
+
+
+def test_the_real_probe_reports_on_the_engine_the_lifespan_published(tmp_path: Path) -> None:
+    """
+    Given an application with nothing overridden,
+    when the engine the health check reports on is swapped for one that answers and then for one
+    that cannot be opened,
+    then /health answers 200 and then 503.
+
+    Every other test in this file replaces the probe, so none of them ever calls
+    `get_health_probe` or runs `DatabaseProbe`. This one does: a probe built over an unrelated
+    always-healthy engine, or a provider reading the *request* engine instead of the poolless one,
+    passes the rest of the suite and fails here.
+
+    The engines are SQLite and in process. What is under test is the wiring -- which engine the
+    provider reads and whether the controller's answer follows it -- and that is not dialect
+    specific.
+    """
+    settings = Settings(
+        _env_file=None,
+        database_url="postgresql+psycopg://nobody:nothing@203.0.113.7:5432/nowhere",
+        base_url="https://sho.rt",
+    )
+    app = create_app(settings=settings)
+
+    with TestClient(app) as client:
+        app.state.probe_engine = create_engine("sqlite://")
+        assert client.get("/health").status_code == HTTPStatus.OK
+
+        # A directory is not a database file, so opening it fails in process and at once.
+        app.state.probe_engine = create_engine(f"sqlite:///{tmp_path}")
+        assert client.get("/health").status_code == HTTPStatus.SERVICE_UNAVAILABLE
