@@ -94,13 +94,15 @@ def test_an_unknown_code_answers_404_without_the_extension_members(bare_client: 
     then it is a 404 problem document, and the optional members are absent rather than null.
     """
     response = bare_client.get("/missing")
-    body: dict[str, Any] = response.json()
 
     assert response.status_code == HTTPStatus.NOT_FOUND
-    assert body["type"] == "link-not-found"
-    assert body["detail"] == "no link exists for code 'zzzzzzz'"
-    assert "reason" not in body
-    assert "errors" not in body
+    assert response.json() == {
+        "type": "link-not-found",
+        "title": "No link answers to that code",
+        "status": 404,
+        "detail": "no link exists for code 'zzzzzzz'",
+        "instance": "/missing",
+    }
 
 
 def test_a_malformed_body_answers_422_naming_the_field_it_refused(bare_client: TestClient) -> None:
@@ -111,12 +113,17 @@ def test_a_malformed_body_answers_422_naming_the_field_it_refused(bare_client: T
     field -- and not FastAPI's own `{"detail": [...]}` shape.
     """
     response = bare_client.post("/validated", json={})
-    body: dict[str, Any] = response.json()
 
     assert response.status_code == HTTPStatus.UNPROCESSABLE_CONTENT
     assert response.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
-    assert body["type"] == "validation-error"
-    assert body["errors"] == [{"field": "body.url", "message": "Field required", "type": "missing"}]
+    assert response.json() == {
+        "type": "validation-error",
+        "title": "The request body is not valid",
+        "status": 422,
+        "detail": "The request does not match the schema this endpoint accepts.",
+        "instance": "/validated",
+        "errors": [{"field": "body.url", "message": "Field required", "type": "missing"}],
+    }
 
 
 def test_the_validation_body_never_echoes_the_payload_back(bare_client: TestClient) -> None:
@@ -181,11 +188,16 @@ def test_an_unexpected_failure_answers_500_without_leaking_the_cause(
     internal message in a response is how detail leaks to whoever is probing.
     """
     response = bare_client.get("/boom")
-    body: dict[str, Any] = response.json()
 
     assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
     assert response.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
-    assert body["type"] == "internal-error"
+    assert response.json() == {
+        "type": "internal-error",
+        "title": "The server failed to handle the request",
+        "status": 500,
+        "detail": "The request could not be handled. The failure was recorded on the server.",
+        "instance": "/boom",
+    }
     assert UNEXPECTED_DETAIL not in response.text
 
 
