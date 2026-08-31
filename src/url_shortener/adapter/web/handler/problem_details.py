@@ -34,12 +34,16 @@ _logger = logging.getLogger(__name__)
 def register_exception_handlers(app: FastAPI) -> None:
     """Install every handler on the app, before any router is included.
 
-    Each `add_exception_handler` call carries a narrow `type: ignore`, and the alternative is
-    worse. Starlette types a handler as `Callable[[Request, Exception], Response]`; parameters are
-    contravariant, so a handler that precisely declares the exception it handles is not assignable
-    to that. Writing `exc: Exception` and casting inside would silence the checker in the one place
-    it is doing useful work -- checking each handler's body against the real exception type -- so
-    the imprecision is kept at the registration line, where it is visible and explained.
+    Four of the five calls carry a narrow `type: ignore`, and the alternative is worse. Starlette
+    types a handler as `Callable[[Request, Exception], Response]`; parameters are contravariant, so
+    a handler that precisely declares the exception it handles is not assignable to that. Writing
+    `exc: Exception` and casting inside would silence the checker in the one place it is doing
+    useful work -- checking each handler's body against the real exception type -- so the
+    imprecision is kept at the registration line, where it is visible and explained.
+
+    The fifth needs none: `_handle_unexpected` takes `exc: Exception`, which is exactly the type
+    Starlette declares. Removing the four proves they are load-bearing -- `uv run mypy` then
+    reports four errors, on those four lines and on no others.
     """
     app.add_exception_handler(InvalidTargetUrlError, _handle_invalid_target_url)  # type: ignore[arg-type]
     app.add_exception_handler(LinkNotFoundError, _handle_link_not_found)  # type: ignore[arg-type]
@@ -77,6 +81,13 @@ def _handle_link_not_found(request: Request, exc: LinkNotFoundError) -> Response
     Both `GET /{code}` and `GET /links/{code}` arrive here, and the two failures behind them are
     deliberately indistinguishable from outside. Telling them apart would tell somebody
     enumerating codes which of their guesses were at least well formed.
+
+    `detail` repeats the value that was asked for, which looks like the thing the 422 handler
+    below refuses to do -- and the difference is worth naming, because the rule is not "never
+    reflect input". What that handler drops is `input`: an arbitrary request body, of arbitrary
+    size and shape, that the caller chose. What this one reflects is a single path segment the
+    router already matched, which `instance` carries anyway, and which is the only thing that makes
+    the message useful to whoever mistyped a link.
     """
     return _problem(
         ProblemResponse(

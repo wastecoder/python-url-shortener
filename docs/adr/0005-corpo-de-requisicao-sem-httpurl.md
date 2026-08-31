@@ -105,5 +105,8 @@ num comentário: é a coisa que a suíte para de aceitar quando alguém a desfaz
 - Um cliente que mande `"banana"` só descobre o erro depois de a requisição chegar ao caso de uso —
   em vez de ser recusado pelo schema. O custo real é zero (a resposta é a mesma requisição), e a
   compensação é que a mensagem vem da política, nomeando o que faltou.
-- O corpo não tem limite de tamanho declarado. Fica como limite conhecido, para um proxy ou para o
-  `--limit-request-field_size` do servidor resolver, e não para o schema.
+- O corpo não tem limite de tamanho declarado, e a consequência é maior do que "sem `max_length`":
+  o FastAPI lê e desserializa o corpo inteiro **antes** de qualquer validador rodar, então o corte
+  de 2048 caracteres da política só acontece depois de a string já existir na memória do processo.
+  Fica como limite conhecido, para um proxy reverso ou para o limite de corpo do servidor resolver,
+  e não para o schema — está registrado nos caveats da Fase 3 no `PROGRESS-V1.md`.

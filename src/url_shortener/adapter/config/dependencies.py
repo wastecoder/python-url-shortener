@@ -17,11 +17,18 @@ in-memory store has to be: built per request, every request would get an empty d
 case providers are deliberately **not** cached -- they are three-line objects holding references,
 and caching them would only hide which collaborators each one was given.
 
-**Fase 4 changes this file and, apart from deleting one module, only this file.** The two
-repository providers stop returning the in-memory implementations and start returning the
-SQLAlchemy ones, bound to a request-scoped session; `adapter/persistence/in_memory_repositories.py`
-goes away. Nothing under `adapter/web/` moves, and that empty diff is the demonstration the
-architecture is here to produce.
+**In Fase 4 the repository swap is this file, plus deleting one module.** The two repository
+providers stop returning the in-memory implementations and start returning the SQLAlchemy ones,
+bound to a request-scoped session; `adapter/persistence/in_memory_repositories.py` goes away; and
+the `@lru_cache` comes off those two, because it exists to make an in-memory store a process-wide
+singleton and would otherwise hand one session to every request. **No controller, no DTO and no
+handler moves for it**, and that is the demonstration the architecture is here to produce.
+
+The claim is about the swap and not about the whole phase, and the difference matters because
+`adapter/web/health_controller.py` *does* change in Fase 4 -- it stops answering a static `ok` and
+starts running `SELECT 1`. That is a new endpoint behaviour arriving, not a repository leaking
+upward, and it is written down in the Fase 4 section of `PROGRESS-V1.md` together with the test
+that has to be rewritten with it.
 """
 
 from functools import lru_cache

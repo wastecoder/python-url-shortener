@@ -117,12 +117,18 @@ está vazio e `logger.exception` escreve `NoneType: None` no lugar do traceback.
   `/invalid-target-url` — um caminho com a forma exata dos que a rota catch-all atende. Nada
   dereferencia esse valor na prática, e nenhum cliente deveria, mas o incômodo é real e é o preço de
   ser fiel à tabela do contrato. Trocar por uma URL absoluta é uma constante e uma ADR.
-- O OpenAPI gerado anuncia `application/json` para os corpos de erro, e não `application/problem+json`.
-  O FastAPI deriva o media type das respostas de erro da classe de resposta da **rota**, e forçar o
-  correto exigiria escrever o bloco `content` à mão em cada rota, com o schema inline em vez de
-  `$ref`. É cosmético e está registrado como caveat no `PROGRESS-V1.md`.
-- Cinco handlers registrados à mão em `register_exception_handlers`, cada um com um
+- O documento OpenAPI gerado **não** descreve este envelope sozinho, e corrigi-lo custou código.
+  O FastAPI arquiva toda entrada `responses={...: {"model": ProblemResponse}}` sob
+  `application/json`, e injeta um `422` apontando para o `HTTPValidationError` dele em toda operação
+  que tem parâmetro — inclusive nas duas rotas `{code}`, onde esse 422 é impossível e onde a forma
+  anunciada é justamente o `{"detail": [...]}` que esta ADR substitui. Declarar `content` à mão em
+  cada rota não resolve: o FastAPI mescla a entrada dele ao lado, e ficam duas, uma errada. A saída
+  foi `_describe_errors_accurately` no `main.py`, que conserta o documento uma vez e o guarda em
+  `openapi_schema`. Três testes afirmam o resultado, e sem a função eles reprovam.
+- Cinco handlers registrados à mão em `register_exception_handlers`, e **quatro** deles com um
   `# type: ignore[arg-type]` na linha de registro — o Starlette tipa handler como
   `Callable[[Request, Exception], Response]` e, por contravariância, uma assinatura precisa não é
-  atribuível a isso. A imprecisão fica na linha de registro, comentada, e não dentro do handler,
-  onde o checador está fazendo trabalho útil.
+  atribuível a isso. O quinto não precisa: `_handle_unexpected` recebe `exc: Exception`, que é
+  exatamente o tipo declarado. A imprecisão fica na linha de registro, comentada, e não dentro do
+  handler, onde o checador está fazendo trabalho útil. Removendo os quatro, o `uv run mypy` acusa
+  quatro erros, nessas quatro linhas e em nenhuma outra.

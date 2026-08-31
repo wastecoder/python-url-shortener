@@ -3,8 +3,10 @@
 **Temporary, and deleted in Fase 4.** It exists so that Fase 3 has a process that actually runs:
 the acceptance criterion of the phase is `uvicorn` answering a real `POST /links` followed by a
 real `302`, and there is no schema, no migration and no engine yet. Fase 4 replaces the two
-provider functions in `adapter/config/dependencies.py` and removes this file, and nothing under
-`adapter/web/` changes -- which is the demonstration that phase promises.
+provider functions in `adapter/config/dependencies.py` and removes this file, and no controller,
+DTO or handler changes for it -- which is the demonstration that phase promises. (The health
+controller does change in Fase 4, for a reason of its own: it gains the database check it has
+nothing to run yet.)
 
 **This is not the test fake, and it must not become one.** `tests/fakes.py` carries affordances
 that exist to write assertions with -- `insert_before_next_save` to open the race window,
