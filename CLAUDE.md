@@ -254,11 +254,23 @@ enum taxonomy. A domain module must never import a status code.
 | Target URL rejected by the domain policy | `400` | `invalid-target-url` |
 | Malformed request body (Pydantic) | `422` | `validation-error` |
 | Unknown code on `GET /{code}` or `GET /links/{code}` | `404` | `link-not-found` |
+| Refused by the router itself (wrong method, unmatched path) | `405` / `404` | `http-error` |
 | Anything unhandled | `500` | `internal-error` |
 
 `400` versus `422` is the distinction between *the schema is fine but the business rule says no*
 and *the payload is not even the right shape*. FastAPI's default validation response is replaced so
 every error in the API has the same envelope.
+
+`http-error` is the fifth row and it exists so that "every error" is literally true: the router
+refuses a wrong method or an unmatched path before any controller runs, and without a handler for
+`HTTPException` those answer Starlette's `{"detail": ...}` in `application/json`. It is not one
+situation but a family, so its status travels on the exception and its title is the status phrase.
+ADR-0006.
+
+The generated OpenAPI document does not describe this envelope on its own — FastAPI files problem
+bodies under `application/json` and injects a `422` pointing at its own `HTTPValidationError` into
+any operation with a parameter. `main.create_app` corrects the document once and caches it, and
+`tests/unit/test_app_routes.py` asserts the result.
 
 ## Commands
 `uv` manages the interpreter, the virtualenv and the dependencies. `uv run` handles activation —
