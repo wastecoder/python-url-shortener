@@ -15,11 +15,12 @@ from url_shortener.adapter.persistence.entity.base import Base
 # column it describes, rather than inside the repository that reads it, so the claim and its
 # subject cannot drift apart across two files.
 #
-# The object stays detached from `Base.metadata` on purpose. Attaching it would make SQLAlchemy
-# emit `CREATE SEQUENCE` and turn the column into `BIGINT DEFAULT nextval(...)`, which is a
-# different design: the sequence would stop being owned by the column, so dropping the table would
-# leave it behind, and Alembic's autogenerate does not emit sequence DDL anyway. Detached, it is
-# only a name -- and `next_value()` is only the `nextval('link_id_seq')` expression.
+# The object stays detached from `Base.metadata` on purpose. Attaching it makes SQLAlchemy emit a
+# separate `CREATE SEQUENCE` and turns this column into a plain `BIGINT NOT NULL` -- with no default
+# at all until a `server_default=seq.next_value()` is added by hand, at which point it reads
+# `BIGINT DEFAULT nextval('link_id_seq')`. Either way the sequence stops being owned by the column,
+# so dropping the table would leave it behind. Detached, it is only a name, `BIGSERIAL` creates and
+# owns the real sequence, and `next_value()` is only the `nextval('link_id_seq')` expression.
 LINK_ID_SEQUENCE: Final[Sequence] = Sequence("link_id_seq")
 
 

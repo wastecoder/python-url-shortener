@@ -37,11 +37,12 @@ def health(probe: HealthProbeDep) -> HealthResponse:
     **It depends on exactly one thing, and that thing is what it reports on.** Until Fase 4 it
     declared no dependency at all, on the principle that an endpoint needing a session or a use case
     to answer could fail for reasons unrelated to the health it reports. The principle survives; the
-    conclusion changed, because now there is something real to check. What replaces it is narrower
-    and does more work: the probe opens a connection of its own, so `/health` is not enlisted in the
-    request transaction and cannot fail because the pool is busy -- and acquiring it cannot fail
-    either, which is what keeps the `503` branch reachable. A dependency whose *setup* raises does
-    so before this function runs, and would be answered as `500`. ADR-0008.
+    conclusion changed, because there is now something real to check. What replaces it is narrower
+    and does more work: the probe runs on an engine of its own, with no pool, so `/health` is
+    neither enlisted in the request transaction nor queued behind a request pool that load has
+    exhausted. That second half is a correction -- the two shared one engine until a review measured
+    what it cost. Acquiring the probe is an attribute read and a constructor, so it cannot fail,
+    which leaves the 200-or-503 decision inside this function. ADR-0008.
 
     The probe returns a `bool` rather than raising, which is why this module imports no SQLAlchemy:
     the question "is the database answering" is the entire contract, and what an `OperationalError`

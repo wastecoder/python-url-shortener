@@ -47,9 +47,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     Starlette declares. Removing the five proves they are load-bearing -- `uv run mypy` then
     reports five errors, on those five lines and on no others.
 
-    One registration is written across four lines rather than one, and only because the single
-    line would be 101 columns wide. mypy blames the argument, so the suppression sits on the
-    argument; it is the same imprecision in the same place, wrapped.
+    One registration is written across four lines rather than one, and only because the single line
+    would be 109 columns wide against a limit of 100. mypy blames the argument, so the suppression
+    sits on the argument; it is the same imprecision in the same place, wrapped.
     """
     app.add_exception_handler(InvalidTargetUrlError, _handle_invalid_target_url)  # type: ignore[arg-type]
     app.add_exception_handler(LinkNotFoundError, _handle_link_not_found)  # type: ignore[arg-type]
