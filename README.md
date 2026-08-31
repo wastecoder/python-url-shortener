@@ -39,6 +39,8 @@ O porquê de cada escolha estrutural está em [`docs/adr/`](docs/adr/):
 - [ADR-0004](docs/adr/0004-fronteira-sem-objeto-de-dominio.md) — a fronteira da aplicação não carrega objeto de domínio
 - [ADR-0005](docs/adr/0005-corpo-de-requisicao-sem-httpurl.md) — o corpo do `POST /links` carrega uma string, e não um `HttpUrl`
 - [ADR-0006](docs/adr/0006-envelope-de-erro-problem-details.md) — todo erro da API sai no mesmo envelope Problem Details
+- [ADR-0007](docs/adr/0007-fronteira-da-transacao.md) — a transação commita antes de a resposta ser enviada
+- [ADR-0008](docs/adr/0008-health-responde-503-no-mesmo-envelope.md) — o `/health` responde `503` no mesmo envelope
 
 ## Como rodar
 
