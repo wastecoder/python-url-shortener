@@ -53,10 +53,16 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     It is `async def`, which is the one place in this project that is, and it is not a crack in the
     synchronous runtime model: ASGI defines the lifespan hook as an async context manager, and the
     rule that exists here -- never call a blocking driver from inside `async def` -- is about
-    request handling. Nothing is being served while these two lines run.
+    request handling. Nothing is being served while any of this runs.
     """
     settings: Settings | None = app.state.configured_settings
     resolved = settings if settings is not None else get_settings()
+
+    # Stored, and then read back by `SettingsDep` on every request. One resolved object, one path
+    # to it: a controller reading `BASE_URL` and the startup hook reading `DATABASE_URL` are looking
+    # at the same instance, and an application handed its settings really does not consult the
+    # environment afterwards.
+    app.state.settings = resolved
 
     engine = create_database_engine(resolved.database_url)
     app.state.engine = engine
@@ -73,8 +79,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     `settings` defaults to `None`, which is what production passes: read the environment at
     startup. A caller that hands over its own gets an application that never reads the environment
-    at all -- which is what keeps `uv run pytest` runnable on a fresh clone with no `.env`, and what
-    lets Fase 5 point the same application at a throwaway database.
+    at all -- the startup hook uses the object it was given and stores it, and `SettingsDep` reads
+    it back from there rather than calling the environment reader again. That is what keeps
+    `uv run pytest` runnable on a fresh clone with no `.env`, and what lets Fase 5 point the same
+    application at a throwaway database.
     """
     app = FastAPI(
         title="url-shortener",

@@ -1,13 +1,15 @@
 """Fixtures for the API tests: the real application, with the driven ports swapped for fakes.
 
 What is overridden here is deliberately narrow: the three **driven** ports -- the two repositories
-and the clock -- plus the health probe, which is the one thing `/health` asks about, plus the
-settings, so that the short URLs are built from a known origin. The use cases are not overridden,
-which means every one of these tests runs the real `CreateLinkUseCaseImpl`, the real deduplication
-flow and the real wiring in `dependencies.py`. FastAPI resolves overrides through sub-dependencies,
-so replacing a leaf is enough -- and it is why none of these tests opens a database connection
-despite the application being wired to PostgreSQL: `get_session` sits under the repositories that
-were replaced, so it is never resolved.
+and the clock -- plus the health probe, which is the one thing `/health` asks about. The settings
+are not overridden at all; they are handed to `create_app`. Neither are the use cases, so every one
+of these tests runs the real `CreateLinkUseCaseImpl`, the real deduplication flow and the real
+wiring in `dependencies.py`.
+
+FastAPI resolves overrides through sub-dependencies, so replacing a leaf is enough -- and that is
+why none of these tests opens a database connection despite the application being wired to
+PostgreSQL: `get_session` sits *under* the repositories that were replaced, so it is never
+resolved at all.
 
 The app is built per test by `create_app()`. `dependency_overrides` is state on the app object, so
 sharing one app across tests would leak one test's fakes into the next.
@@ -32,7 +34,7 @@ from url_shortener.adapter.config.dependencies import (
     get_health_probe,
     get_link_repository,
 )
-from url_shortener.adapter.config.settings import Settings, get_settings
+from url_shortener.adapter.config.settings import Settings
 from url_shortener.main import create_app
 
 BASE_URL = "https://sho.rt"
@@ -94,19 +96,19 @@ def app(
 ) -> FastAPI:
     """The real application, with only its driven ports replaced.
 
-    The settings are handed to `create_app` as well as overridden as a dependency, and the two are
-    doing different jobs. The override is what the controllers read, so that `short_url` is built
-    from a known origin. The constructor argument is what the startup hook reads, so that the app
-    builds its engine from this DSN instead of going to look for an environment -- which is what
-    keeps this suite runnable on a machine with no `.env`, no `DATABASE_URL` and no database. The
-    DSN points at nothing, and nothing ever connects to it: building an engine opens no socket.
+    The settings are handed to `create_app` and **not** overridden as a dependency, and that is a
+    correction rather than a simplification: an adversarial review found that `SettingsDep` used to
+    call the environment reader on every request, so an application built with explicit settings
+    still consulted the environment and only this override hid it. The startup hook now stores what
+    it was given and `SettingsDep` reads it back, so one object serves both -- the engine's DSN and
+    the origin `short_url` is built from. The DSN points at nothing, and nothing ever connects to
+    it: building an engine opens no socket.
     """
     application = create_app(settings=settings)
     application.dependency_overrides[get_link_repository] = lambda: links
     application.dependency_overrides[get_click_repository] = lambda: clicks
     application.dependency_overrides[get_clock] = lambda: clock
     application.dependency_overrides[get_health_probe] = lambda: probe
-    application.dependency_overrides[get_settings] = lambda: settings
     return application
 
 
