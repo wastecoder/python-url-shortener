@@ -13,6 +13,7 @@ to constrain twenty lines that exist to import things.
 
 from fastapi import FastAPI
 
+from url_shortener.adapter.web import link_controller
 from url_shortener.adapter.web.handler.problem_details import register_exception_handlers
 
 
@@ -31,6 +32,8 @@ def create_app() -> FastAPI:
     # Before the routers, so that a failure raised while answering any of them lands here rather
     # than in Starlette's defaults.
     register_exception_handlers(app)
+
+    app.include_router(link_controller.router)
 
     return app
 
