@@ -86,26 +86,44 @@ def test_every_access_is_a_new_row_and_nothing_is_ever_updated(
     client: TestClient, database: Engine
 ) -> None:
     """
-    Given a link followed three times,
+    Given a link followed once with a user agent and a referer, and then twice more without,
     when the table is read,
-    then there are three rows with three distinct ids, and the first one is exactly as it was
-    written.
+    then there are three rows with three distinct ids, and the first one is byte for byte what the
+    first access wrote.
 
     `click` is append-only, and this is what that means from outside: three accesses are three
-    rows. A design that kept a total on `link` would show one row and a counter, which is a write
-    on the read path, on the same row, that two hits on a popular link contend for.
+    rows, and the earlier ones are untouched. A design that kept a total on `link` would show one
+    row and a counter, which is a write on the read path, on the same row, that two hits on a
+    popular link contend for.
+
+    The last assertion is the half the name promises and row counting cannot deliver. The first
+    access is the only one carrying a referer, so an implementation that updated the existing row
+    instead of appending -- or that rewrote earlier rows with the latest request's context -- would
+    still show three rows and would fail here.
     """
     code = _shorten(client)
+    columns = "SELECT id, link_id, occurred_at, user_agent, referer, ip FROM click"
 
-    for _ in range(3):
+    client.get(f"/{code}", headers={"user-agent": USER_AGENT, "referer": REFERER})
+
+    with database.connect() as connection:
+        as_first_written = connection.execute(text(columns)).one()
+
+    for _ in range(2):
         client.get(f"/{code}")
 
     with database.connect() as connection:
-        rows = connection.execute(text("SELECT id, link_id FROM click ORDER BY id")).all()
+        rows = connection.execute(text(f"{columns} ORDER BY id")).all()
 
     assert len(rows) == 3
     assert len({row.id for row in rows}) == 3
     assert {row.link_id for row in rows} == {1}
+
+    # What gives the assertion below its teeth, asserted rather than assumed: the two later
+    # accesses really did carry different context, so an overwrite would be visible. Without this
+    # line, three identical rows would satisfy the comparison and prove nothing.
+    assert [row.referer for row in rows] == [REFERER, None, None]
+    assert rows[0] == as_first_written
 
 
 def test_the_link_table_has_no_column_that_could_hold_a_total(database: Engine) -> None:

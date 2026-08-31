@@ -28,10 +28,13 @@ from url_shortener.adapter.config.settings import Settings
 from url_shortener.main import create_app
 
 # The same image `compose.yml` pins, to the same patch. A suite that tests against a different
-# server than the one anybody runs is a suite that can pass while the product is broken -- and
-# PostgreSQL 18 is not an arbitrary choice here, since it is the release that moved the image's
-# `PGDATA` and the version whose `ON CONFLICT` and `TRUNCATE ... RESTART IDENTITY` semantics every
-# assertion below leans on.
+# server than the one anybody runs is a suite that can pass while the product is broken.
+#
+# The version is 18.6 because that is what `compose.yml` pins -- 18 is the release that moved the
+# official image's `PGDATA` -- and deliberately not because anything below needs a server that new.
+# Nothing here leans on a recent feature, so this suite would keep passing against an older major:
+# what it is pinned to is *parity with the thing being shipped*, which is the only property worth
+# having.
 POSTGRES_IMAGE = "postgres:18.6-alpine"
 
 # The origin the short URLs are built from, fixed here rather than read from anywhere. It is
@@ -99,9 +102,9 @@ def database(database_dsn: str) -> Iterator[Engine]:
     writes that have not committed -- which is exactly the failure mode the three headline tests
     exist to rule out.
 
-    `NullPool` so the suite never holds connections between tests: the application's pool is what
-    the concurrency test is measuring, and a second pool sitting on the same server's connection
-    budget would be noise inside the measurement.
+    `NullPool` so the suite never holds connections between tests: the pool the tests exercise is
+    the application's, and a second one sitting idle on the same server's connection budget would
+    be noise inside it.
     """
     engine = create_engine(database_dsn, poolclass=NullPool)
     try:
@@ -146,7 +149,11 @@ def app(settings: Settings) -> FastAPI:
     """The real application, wired to the container, with **nothing** overridden.
 
     Per test rather than per session: `create_app` is cheap, and an application shared across tests
-    would share the connection pool that the concurrency test deliberately saturates.
+    would share one connection pool -- the pool that
+    `test_health_still_answers_when_every_request_connection_is_taken` checks out to its last
+    connection by hand, and the pool the eight racers of the concurrency test run against. (Those
+    eight do *not* fill it: `RACERS` is bounded at eight against a capacity of fifteen precisely so
+    that the test keeps measuring PostgreSQL and not `pool_timeout`.)
     """
     return create_app(settings=settings)
 
@@ -155,9 +162,14 @@ def app(settings: Settings) -> FastAPI:
 def client(app: FastAPI) -> Iterator[TestClient]:
     """A client that never follows a redirect and reports a routable address.
 
-    `follow_redirects=False` is not a preference: following the `302` of a short link would send a
-    real request to the target URL, so the suite would reach the network and start measuring
-    somebody else's website.
+    `follow_redirects=False` is not a preference, and the reason is **not** the network -- which
+    is what this paragraph used to say, until it was measured. The test client dispatches every
+    request through its one ASGI transport whatever host the URL names, so the hop never leaves the
+    process and no name is ever resolved. It re-enters *this* application, where
+    `https://example.com/a-fairly-long-target` matches the catch-all `GET /{code}`, finds no link
+    and answers `404`. The `302` and its `Location` would then be buried in `response.history`
+    while `response` carried that `404`, and every assertion naming them would be reading the
+    wrong answer.
 
     The `with` block is what runs the ASGI lifespan, and here that matters more than it does in the
     unit suite -- the lifespan is where the settings are resolved and where both engines are built.
