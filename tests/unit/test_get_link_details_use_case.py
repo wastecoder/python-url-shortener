@@ -1,20 +1,16 @@
 """Reading a link: its destination, its age, and how often it has been followed."""
 
-from datetime import UTC, datetime
-
 import pytest
 
 from tests.fakes import InMemoryClickRepository, InMemoryLinkRepository
+from tests.mothers import CREATED_AT, ClickMother, LinkMother, TargetUrlMother
 from url_shortener.application.port.inbound.get_link_details_use_case import GetLinkDetailsUseCase
 from url_shortener.application.usecase.get_link_details_use_case import GetLinkDetailsUseCaseImpl
 from url_shortener.domain.exception.link_not_found_error import LinkNotFoundError
-from url_shortener.domain.model.click import Click
 from url_shortener.domain.model.link import Link
-from url_shortener.domain.model.short_code import ShortCode
 from url_shortener.domain.service.url_hash import hash_url
 
-INSTANT = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
-TARGET = "https://example.com/a"
+TARGET = TargetUrlMother.accepted()
 
 
 def _use_case(
@@ -25,8 +21,8 @@ def _use_case(
 
 
 def _store_one_link(links: InMemoryLinkRepository, url: str = TARGET) -> Link:
-    link_id = links.next_id()
-    link = Link(id=link_id, code=ShortCode.from_id(link_id), url=url, created_at=INSTANT)
+    """Put one link in the store the way the use case would find it, and hand it back."""
+    link = LinkMother.with_id(links.next_id(), url=url)
     links.save(link, url_hash=hash_url(url))
     return link
 
@@ -40,14 +36,14 @@ def test_the_details_report_the_link_and_how_often_it_was_followed() -> None:
     links = InMemoryLinkRepository()
     clicks = InMemoryClickRepository()
     link = _store_one_link(links)
-    clicks.record(Click(link_id=link.id, occurred_at=INSTANT))
-    clicks.record(Click(link_id=link.id, occurred_at=INSTANT))
+    clicks.record(ClickMother.on(link))
+    clicks.record(ClickMother.on(link))
 
     result = _use_case(links, clicks).get_details(str(link.code))
 
     assert result.code == str(link.code)
     assert result.url == TARGET
-    assert result.created_at == INSTANT
+    assert result.created_at == CREATED_AT
     assert result.total_clicks == 2
 
 
@@ -76,9 +72,9 @@ def test_the_total_counts_this_link_and_no_other() -> None:
     clicks = InMemoryClickRepository()
     first = _store_one_link(links)
     second = _store_one_link(links, "https://example.com/b")
-    clicks.record(Click(link_id=first.id, occurred_at=INSTANT))
-    clicks.record(Click(link_id=second.id, occurred_at=INSTANT))
-    clicks.record(Click(link_id=second.id, occurred_at=INSTANT))
+    clicks.record(ClickMother.on(first))
+    clicks.record(ClickMother.on(second))
+    clicks.record(ClickMother.on(second))
 
     result = _use_case(links, clicks).get_details(str(second.code))
 

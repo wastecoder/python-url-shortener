@@ -6,11 +6,12 @@ by accident: an integration test asserting that a redirect answers 302 passes ju
 mapper that silently drops `referer`.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from ipaddress import IPv4Address, IPv6Address
 
 import pytest
 
+from tests.mothers import CREATED_AT, MIXED_CASE_CODE, ClickMother, LinkMother, TargetUrlMother
 from url_shortener.adapter.persistence.entity.click_entity import ClickEntity
 from url_shortener.adapter.persistence.entity.link_entity import LinkEntity
 from url_shortener.adapter.persistence.mapper import click_mapper, link_mapper
@@ -19,32 +20,32 @@ from url_shortener.domain.model.link import Link
 from url_shortener.domain.model.short_code import ShortCode
 from url_shortener.domain.service.url_hash import hash_url
 
-URL = "https://example.com/a-fairly-long-target"
+URL = TargetUrlMother.accepted()
 DIGEST = hash_url(URL)
-# Microseconds and a non-zero minute on purpose: a round trip asserted against a whole-second
-# instant survives a mapper that truncates, and TIMESTAMPTZ keeps microseconds.
-NOW = datetime(2026, 8, 31, 12, 34, 56, 789012, tzinfo=UTC)
 
-# An id whose code carries letters of both cases, and not `1` -- whose code is `0000001`, where
-# every assertion about the code would survive a mapper that upper-cased or lower-cased it. Base 62
-# is case sensitive here: `aaaaaaa` and `AAAAAAA` are two different links.
-LINK_ID = 999_999_999_999
-CODE = "hBxM5A3"
+# The scenario every round trip here starts from: the link whose code carries digits and letters
+# of both cases. `LinkMother.first()` would not do -- its code is `0000001`, and every assertion
+# below would survive a mapper that upper-cased or lower-cased the column.
+#
+# The expected code is the mother's *literal*, while the link under test derives its own through
+# `ShortCode.from_id`. Two independent statements of the same fact, which is what makes the
+# comparison worth making.
+CODE = MIXED_CASE_CODE
 
 
 def _link() -> Link:
     """The link the round trips start from."""
-    return Link(id=LINK_ID, code=ShortCode.from_id(LINK_ID), url=URL, created_at=NOW)
+    return LinkMother.with_a_mixed_case_code()
 
 
 def _row(**overrides: object) -> LinkEntity:
     """A row of `link` as the database would hand it back, before any override."""
     values: dict[str, object] = {
-        "id": LINK_ID,
+        "id": _link().id,
         "code": CODE,
         "url": URL,
         "url_hash": DIGEST,
-        "created_at": NOW,
+        "created_at": CREATED_AT,
     }
     return LinkEntity(**(values | overrides))
 
@@ -150,7 +151,7 @@ def test_a_click_is_written_without_an_id() -> None:
     then no id is written: the column is BIGSERIAL and the database assigns it, and the domain has
     no field for it because nothing ever reads a click back.
     """
-    click = Click(link_id=7, occurred_at=NOW)
+    click = ClickMother.on_link_id(7)
 
     written = set(click_mapper.to_values(click))
 
@@ -170,7 +171,7 @@ def test_the_address_crosses_unconverted(address: IPv4Address | IPv6Address | No
     then the very same object is written -- psycopg understands `ipaddress` in both directions, so
     a `str()` here would only create the need for an `ip_address()` on the way back.
     """
-    click = Click(link_id=7, occurred_at=NOW, ip=address)
+    click = Click(link_id=7, occurred_at=CREATED_AT, ip=address)
 
     assert click_mapper.to_values(click)["ip"] is address
 
@@ -182,7 +183,7 @@ def test_the_optional_headers_are_written_as_they_arrived() -> None:
     then both cross as they are -- an HTTP client owes neither header, and an absent one is a NULL
     rather than an empty string.
     """
-    click = Click(link_id=7, occurred_at=NOW, user_agent="curl/8.5.0", referer=None)
+    click = Click(link_id=7, occurred_at=CREATED_AT, user_agent="curl/8.5.0", referer=None)
 
     values = click_mapper.to_values(click)
 

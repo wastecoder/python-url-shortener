@@ -1,28 +1,29 @@
 """Creating a link: the order of the steps, and what happens when two requests collide."""
 
-from datetime import UTC, datetime
-
 import pytest
 
 from tests.fakes import FixedClock, InMemoryLinkRepository
+from tests.mothers import CREATED_AT, LinkMother, TargetUrlMother
 from url_shortener.application.port.inbound.create_link_use_case import CreateLinkUseCase
 from url_shortener.application.usecase.create_link_use_case import CreateLinkUseCaseImpl
 from url_shortener.application.viewmodel.create_link_command import CreateLinkCommand
 from url_shortener.domain.exception.domain_error import DomainError
 from url_shortener.domain.exception.invalid_target_url_error import InvalidTargetUrlError
 from url_shortener.domain.model.link import Link
-from url_shortener.domain.model.short_code import ShortCode
 from url_shortener.domain.service.url_hash import UrlHash, hash_url
 
-# The microseconds are not decoration: a clock value that arrived truncated would otherwise
-# compare equal to this one, and the assertion would pass on a timestamp nobody wrote.
-INSTANT = datetime(2026, 8, 31, 12, 0, 0, 123456, tzinfo=UTC)
-TARGET = "https://example.com/a"
+TARGET = TargetUrlMother.accepted()
 
 
 def _use_case(links: InMemoryLinkRepository) -> CreateLinkUseCase:
-    """Build the subject, annotated with the port: the return type is the conformance assertion."""
-    return CreateLinkUseCaseImpl(links, FixedClock(INSTANT))
+    """Build the subject, annotated with the port: the return type is the conformance assertion.
+
+    The clock is frozen at the mother's instant, which is what lets the link this use case builds
+    be compared against `LinkMother.first()` as a whole object rather than field by field. That
+    instant carries microseconds, and not for decoration: a clock value that arrived truncated
+    would otherwise compare equal, and the assertion would pass on a timestamp nobody wrote.
+    """
+    return CreateLinkUseCaseImpl(links, FixedClock(CREATED_AT))
 
 
 class _RepositoryThatRefusesWithoutStoring(InMemoryLinkRepository):
@@ -50,9 +51,9 @@ def test_a_new_url_becomes_the_link_whose_code_is_its_id_in_base_62() -> None:
 
     assert result.code == "0000001"
     assert result.url == TARGET
-    assert result.created_at == INSTANT
+    assert result.created_at == CREATED_AT
     assert result.was_created is True
-    assert links.rows == (Link(id=1, code=ShortCode("0000001"), url=TARGET, created_at=INSTANT),)
+    assert links.rows == (LinkMother.first(),)
 
 
 def test_the_stored_link_is_found_by_the_digest_of_the_url_it_points_at() -> None:
@@ -173,7 +174,7 @@ def test_losing_the_insert_race_answers_with_the_link_that_won() -> None:
     """
     links = InMemoryLinkRepository()
     rival_id = links.next_id()
-    rival = Link(id=rival_id, code=ShortCode.from_id(rival_id), url=TARGET, created_at=INSTANT)
+    rival = LinkMother.with_id(rival_id, url=TARGET)
     links.insert_before_next_save(rival, url_hash=hash_url(TARGET))
 
     result = _use_case(links).create(CreateLinkCommand(TARGET))
@@ -193,8 +194,7 @@ def test_losing_the_race_leaves_the_spent_sequence_value_as_a_gap() -> None:
     links = InMemoryLinkRepository()
     rival_id = links.next_id()
     links.insert_before_next_save(
-        Link(id=rival_id, code=ShortCode.from_id(rival_id), url=TARGET, created_at=INSTANT),
-        url_hash=hash_url(TARGET),
+        LinkMother.with_id(rival_id, url=TARGET), url_hash=hash_url(TARGET)
     )
 
     _use_case(links).create(CreateLinkCommand(TARGET))
