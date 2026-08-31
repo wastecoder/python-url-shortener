@@ -34,7 +34,11 @@ python_version = "3.13"
 strict = true
 # `tests` is checked too, and not as a nicety: `tests/fakes.py` is where the in-memory stand-ins
 # are declared to satisfy the driven ports, and a declaration no type checker reads proves nothing.
-files = ["src", "tests"]
+# `migrations` for a different reason: it is the only Python in the repository that decides what the
+# schema *is*, so leaving it out would mean the one place a column can be misdeclared is the one
+# place nothing checks. It costs nothing -- Alembic ships `py.typed`, and the revision template was
+# written to produce files that already pass.
+files = ["src", "tests", "migrations"]
 # Neither line below is optional. `tests/` has no `__init__.py`, because `--import-mode=importlib`
 # means pytest does not need one, so mypy has to be told which directories are package roots. Left
 # alone it maps the same file to two module names and stops before checking anything.
