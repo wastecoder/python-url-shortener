@@ -116,9 +116,12 @@ def app(
 def client(app: FastAPI) -> Iterator[TestClient]:
     """A client that never follows a redirect and reports a routable address.
 
-    `follow_redirects=False` is not a preference. Following the `302` of a short link would make
-    the test client issue a real request to the target URL, so a unit test would reach the
-    network -- and would then be measuring somebody else's website.
+    `follow_redirects=False` is not a preference, and the reason is **not** the network -- which
+    is what this paragraph used to say, until Fase 5 measured it. The test client dispatches every
+    request through its one ASGI transport whatever host the URL names, so the hop never leaves the
+    process and no name is ever resolved. It re-enters *this* application, where the target URL
+    matches the catch-all `GET /{code}` and answers `404`; the `302` and its `Location` end up in
+    `response.history`, where the assertions naming them cannot see them.
 
     `client=` fixes the peer address, which is what the redirect controller reads to fill
     `Click.ip`. The default the test client reports is the literal string `testclient`, which does

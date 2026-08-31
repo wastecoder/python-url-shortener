@@ -222,8 +222,9 @@ def test_a_validation_schema_something_still_points_at_is_not_removed() -> None:
     Asserted against the function rather than against the generated document because this
     application's own routes cannot produce the case -- every reference to those two schemas comes
     from a response this pass deletes. A branch that only a hypothetical document reaches is still
-    a branch, and leaving it unexercised would mean the guard `name in schemas` is never once
-    observed doing its job.
+    a branch, and leaving it unexercised would mean the `not in still_referenced` half of the guard
+    is never once observed refusing a deletion. (The other half, `name in schemas`, stays true on
+    every run of the whole suite: FastAPI always generates both schemas.)
     """
     document: dict[str, Any] = {
         "paths": {

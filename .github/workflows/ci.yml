@@ -90,9 +90,13 @@ jobs:
       # declared by the code that needs it, at the version that code pins, and nothing in CI has
       # to be kept in step with `compose.yml` by hand.
       #
-      # `-m ""` runs both suites in one process, and not out of convenience: coverage of the
-      # adapter only exists when the integration tests have run, and combining two data files
-      # across two jobs would be machinery bought for a suite that takes fifteen seconds.
+      # `-m ""` runs both suites in one process, and not out of convenience: neither suite reaches
+      # the gate below on its own. The unit run misses exactly the twelve statements that cannot
+      # execute without a real session -- `get_session` and the two repositories -- and nothing
+      # else, which is a narrower gap than it sounds and is the interesting number; the integration
+      # run misses every error path the unit tests drive with fakes. The gate needs both sets of
+      # data, and combining them across two jobs would be machinery bought for a suite that takes
+      # under twenty seconds.
       - name: Every test, against a real PostgreSQL
         run: uv run pytest -m "" --cov --cov-report=
 
