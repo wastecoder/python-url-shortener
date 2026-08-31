@@ -1,11 +1,16 @@
-"""The `/links` collection: creating a link."""
+"""The `/links` collection: creating a link, and reading what is known about one."""
 
 from http import HTTPStatus
 
 from fastapi import APIRouter, Response
 
-from url_shortener.adapter.config.dependencies import CreateLinkUseCaseDep, SettingsDep
+from url_shortener.adapter.config.dependencies import (
+    CreateLinkUseCaseDep,
+    GetLinkDetailsUseCaseDep,
+    SettingsDep,
+)
 from url_shortener.adapter.web.dto.request.create_link_request import CreateLinkRequest
+from url_shortener.adapter.web.dto.response.link_details_response import LinkDetailsResponse
 from url_shortener.adapter.web.dto.response.link_response import LinkResponse
 from url_shortener.adapter.web.dto.response.problem_response import ProblemResponse
 from url_shortener.adapter.web.public_url import link_details_url
@@ -66,3 +71,32 @@ def create_link(
         response.status_code = HTTPStatus.OK
 
     return body
+
+
+@router.get(
+    "/links/{code}",
+    response_model=LinkDetailsResponse,
+    summary="Read a link and its click total",
+    responses={
+        HTTPStatus.NOT_FOUND: {
+            "model": ProblemResponse,
+            "description": "No link answers to that code, or it is not a code at all.",
+        },
+    },
+)
+def get_link_details(
+    code: str,
+    use_case: GetLinkDetailsUseCaseDep,
+    settings: SettingsDep,
+) -> LinkDetailsResponse:
+    """Report a link's destination, when it was created, and how often it has been followed.
+
+    Reading this records nothing. Asking how many times a link was followed is not following it,
+    and a read that counted would change the number by being asked for it.
+
+    The route is registered before the catch-all `GET /{code}`, which is what keeps `/links/abc`
+    from being read as a seven-character code. `code` is a plain `str` here for the same reason
+    the redirect takes one: the value frequently is not a code, and answering that case is the
+    whole job.
+    """
+    return LinkDetailsResponse.from_result(use_case.get_details(code), base_url=settings.base_url)
