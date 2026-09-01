@@ -247,10 +247,10 @@ sequenceDiagram
     end
 ```
 
-**Por que os passos 5 e 12 existem os dois.** Entre o `SELECT` que não achou nada e o `INSERT`,
+**Por que os passos 5 e 20 existem os dois.** Entre o `SELECT` que não achou nada e o `INSERT`,
 outra requisição pode inserir. **Só a constraint única fecha essa janela.** O `SELECT` inicial é
 otimização — evita gastar um id e tentar escrever quando quase sempre já existe linha; o `SELECT`
-final é correção — é como o perdedor descobre com qual código responder. Trocar o passo 9 por um
+final é correção — é como o perdedor descobre com qual código responder. Trocar o passo 15 por um
 *check-then-insert* em Python devolve exatamente o bug que a constraint existe para matar.
 
 Três detalhes que não são decoração:
@@ -319,7 +319,8 @@ quente por trabalho no caminho frio — um `COUNT` na leitura — e é a troca c
 casa qualquer segmento único na raiz; movê-lo para cima faria os dois outros caminhos resolverem
 como código curto e responderem `404`, porque nenhum dos dois tem sete caracteres. As rotas de
 documentação (`/docs`, `/redoc`, `/openapi.json`) estão a salvo por **outro** motivo, e não por
-este: o `FastAPI.__init__` as registra antes de qualquer linha de `create_app` rodar.
+este: o `FastAPI.__init__` as registra na primeira instrução de `create_app`, antes de qualquer
+`include_router`.
 
 Essa é a mesma questão vista de dois lados. Do outro lado está a lista de códigos reservados em
 `domain.service.url_policy` — `docs`, `redoc`, `openapi.json`, `health`, `links`. **Nenhum deles tem
@@ -346,7 +347,7 @@ erDiagram
 
     click {
         bigint id PK "BIGSERIAL"
-        bigint link_id FK "ix_click_link_id -- o unico indice do schema"
+        bigint link_id FK "ix_click_link_id -- o unico CREATE INDEX do schema"
         timestamptz occurred_at "vem do Clock"
         text user_agent "nullable"
         text referer "nullable"

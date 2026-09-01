@@ -255,7 +255,8 @@ Os que carregam o projeto:
 
 O CI roda três jobs independentes — `check`, `integration` e `image` — e o terceiro constrói a
 imagem, sobe a stack inteira e exercita o fluxo pela porta publicada. **A `main` é protegida e exige
-o check**, então um pull request vermelho não é mergeável. Estratégia completa em
+`check` e `integration`**, então um pull request vermelho em qualquer um dos dois não é mergeável; o
+`image` roda em todo pull request mas não é contexto obrigatório. Estratégia completa em
 [`docs/TESTS.md`](docs/TESTS.md).
 
 ## Decisões em destaque

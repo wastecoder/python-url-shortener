@@ -58,7 +58,7 @@ url-shortener/
 ├─ .python-version            # 3.13
 ├─ .env.example               # versioned; .env is gitignored
 ├─ .importlinter              # hexagonal layer contracts, enforced in CI
-├─ compose.yml                # api + postgres
+├─ compose.yml                # postgres + migrate (one-shot) + api
 ├─ Dockerfile                 # multi-stage
 ├─ alembic.ini
 ├─ migrations/                # Alembic (versions/)
@@ -76,11 +76,11 @@ url-shortener/
 │  ├─ adr/000N-*.md           # short numbered ADRs, Portuguese
 │  └─ learning/               # one note per finished phase — GITIGNORED, not part of the repo
 ├─ src/url_shortener/         # see Architecture below
-└─ tests/
-   ├─ conftest.py
+└─ tests/                     # no `__init__.py` and no root `conftest.py`, on purpose
+   ├─ fakes.py                # in-memory stand-ins for the driven ports, checked by mypy
    ├─ mothers.py              # Object Mother fixtures
-   ├─ unit/                   # no Docker, no database, fast
-   └─ integration/            # Testcontainers, marked `integration`
+   ├─ unit/conftest.py        # no Docker, no database, fast
+   └─ integration/conftest.py # Testcontainers, marked `integration`
 ```
 
 **The root `README.md` is a hub, not a manual.** Every section is a dense summary that ends by
@@ -365,9 +365,11 @@ documented in this file.
   2. Deduplication — `POST` the same URL twice, asserting the same code comes back **and** that
      exactly one row exists in `link`.
   3. The redirect recorded the click — `GET /{code}`, then assert a row landed in `click`.
-- **The test worth writing if there is time:** fire two concurrent `POST /links` with the same URL
-  and assert exactly one link was created. It is impossible to write with a mock, because what is
-  under test is the database's behaviour under concurrency.
+- **The concurrency test, written in Fase 5 with eight requests and not two:**
+  `test_eight_simultaneous_requests_for_one_url_create_exactly_one_link`, released together by a
+  `threading.Barrier`, asserting one `201`, seven `200`, one code and one row. It is impossible to
+  write with a mock, because what is under test is the database's behaviour under concurrency. Its
+  fifth assertion — more than one id spent from the sequence — is what stops it passing vacuously.
 - **Unit tests cover the domain properly, not decoratively.** `base62` edge cases (`0`, `1`, `61`,
   `62`, a large id, round-trip `decode(encode(n)) == n`, padding to 7) and every branch of
   `url_policy`. With this scope, the domain module is nearly the whole project.
@@ -375,12 +377,23 @@ documented in this file.
   Given / When / Then form — the equivalent of the Java project's `@DisplayName`.
 - **Fixtures use the Object Mother pattern** in `tests/mothers.py`: a class with a private
   constructor and static scenario factories. No builders.
-- **Coverage gate** in CI via `--cov-fail-under`. Mutation testing (the Pitest equivalent, run over
+- **Two coverage gates** in CI, both `uv run coverage report --fail-under=100` over the same
+  `.coverage` file: one restricted to `domain/` + `application/`, one over the whole tree. There is
+  no `--cov-fail-under` in `addopts` — the gates live only in the workflow, so a local
+  `uv run pytest` never fails on coverage. Mutation testing (the Pitest equivalent, run over
   `domain/` only) belongs to `docs/PROGRESS-V2.md`.
 
 ## CI
-GitHub Actions on every pull request: `ruff check`, `ruff format --check`, `mypy`, `lint-imports`,
-unit tests, integration tests, `docker build`. **Failed, no merge.**
+GitHub Actions on every pull request, in three independent jobs with no `needs:` between them.
+`check`: `ruff check`, `ruff format --check`, `mypy`, `lint-imports`, unit tests and the coverage
+gate on `domain` + `application`. `integration`: both suites against a real PostgreSQL, and the
+coverage gate on the whole tree. `image`: `docker compose build`, `up -d --wait`, and a curl smoke
+test through the published port.
+
+**Failed, no merge — with one gap worth knowing.** Only `check` and `integration` are *required*
+status contexts on `main`. `image` runs on every pull request but does not block a merge, so a pull
+request red on the image alone is still mergeable. Closing that is one line in the branch
+protection settings.
 
 Testcontainers needs a Docker daemon on the runner. `ubuntu-latest` already has one, so the
 workflow does **not** declare `services:` — the test starts its own container. That difference is
@@ -396,10 +409,10 @@ Format: `<type>(<optional scope>): <imperative, lower-case summary>`
 Accepted types: `feat`, `fix`, `refactor`, `test`, `docs`, `build`, `ci`, `chore`, `perf`, `style`.
 
 Scopes follow the layout — `domain`, `application`, `web`, `persistence`, `config`, `db`, `deps` —
-**or the tool the commit is about**, which is what the history actually contains: `adr`, `progress`,
-`github`, `docker`, `compose`, `alembic`, `uv`, `lint`, `mypy`, `imports`, `packaging`. The list is
-illustrative, not closed; the scope names the thing being changed, and a commit that fits none of
-them takes no scope at all.
+**or the tool or suite the commit is about**, which is what the history actually contains: `adr`,
+`progress`, `github`, `docker`, `compose`, `alembic`, `integration`, `lint`, `mypy`, `imports`,
+`packaging`. The list is illustrative, not closed; the scope names the thing being changed, and a
+commit that fits none of them takes no scope at all.
 
 Examples:
 - `feat(domain): add base62 encoding with fixed-length 7 output`

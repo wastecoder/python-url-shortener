@@ -103,7 +103,10 @@ location: https://docs.python.org/3/library/dataclasses.html
 cache-control: no-store
 ```
 
-Sem corpo. O `Location` carrega a URL de destino **byte a byte como foi enviada**.
+Sem corpo. O `Location` carrega a URL de destino como ela foi guardada, com uma ressalva: o
+`RedirectResponse` do Starlette percent-encoda o que cai fora do conjunto seguro dele, então um
+destino com `ç` no caminho viaja no cabeçalho como `%C3%A7`. **Byte a byte é a linha no banco**, não
+o cabeçalho.
 
 **É `302`, nunca `301` e nunca `307`.** O `307` é o default do `RedirectResponse` do Starlette e
 está errado aqui por preservar o método, que não é o que um link curto significa; o `301` é pior,
@@ -120,9 +123,10 @@ Nada captura essa falha, e isso é decisão e não descuido: não há fila nem o
 erro transformaria uma falha de banco no único caminho de escrita desta rota numa linha de log sem
 nenhum alarme atrás. [ADR-0007](adr/0007-fronteira-da-transacao.md).
 
-O que é registrado: o instante, o `User-Agent`, o `Referer` e o endereço IP de quem chamou — os
-três primeiros direto dos cabeçalhos, e o endereço a partir do peer da conexão. Cabeçalho ausente
-vira `NULL`; um endereço que não parseia vira `NULL` também, e não um erro.
+O que é registrado: o instante, o `User-Agent`, o `Referer` e o endereço IP de quem chamou — o
+instante vem da porta `Clock` da aplicação e **não** da requisição, os dois cabeçalhos vêm direto
+dela, e o endereço a partir do peer da conexão. Cabeçalho ausente vira `NULL`; um endereço que não
+parseia vira `NULL` também, e não um erro.
 
 ### 1.3 `GET /links/{code}` — ler o link
 
@@ -171,7 +175,8 @@ o produz**: uma queda do banco nas três rotas de negócio continua sendo `500`.
 
 ## 2. Erros (RFC 7807)
 
-Toda falha sai como `application/problem+json` com quatro membros obrigatórios e dois de extensão:
+Toda falha sai como `application/problem+json` com cinco membros sempre presentes e dois de
+extensão:
 
 | Membro | Tipo | Sempre presente | O que carrega |
 |---|---|---|---|
@@ -179,7 +184,7 @@ Toda falha sai como `application/problem+json` com quatro membros obrigatórios 
 | `title` | string | sim | Frase curta e estável, a mesma para todo erro daquele tipo |
 | `status` | int | sim | O mesmo status da linha de resposta |
 | `detail` | string | sim | O que houve **nesta** requisição |
-| `instance` | string | não | O caminho em que a falha aconteceu |
+| `instance` | string | sim | O caminho em que a falha aconteceu — os seis handlers o preenchem, embora o modelo o declare opcional |
 | `reason` | string | só no `400` | O motivo exato da recusa do destino |
 | `errors` | lista | só no `422` | Um item por campo inválido: `field`, `message`, `type` |
 
@@ -392,8 +397,9 @@ guarda o resultado em cache. São duas correções distintas:
    Declarar `content` à mão em cada rota não resolve — ele mescla a entrada dele ao lado, deixando
    duas, uma delas errada. A correção **renomeia** a chave para `application/problem+json`.
 2. O FastAPI injeta um `422` apontando para o `HTTPValidationError` dele em toda operação que tem
-   parâmetro — uma resposta que **não pode acontecer** em `GET /links/{code}` nem em `GET /{code}`,
-   onde `code` é uma `str` sem validação. A correção **apaga** essa entrada, e depois remove os
+   parâmetro e **não declara um `422` próprio** — o `POST /links` declara o dele e fica de fora.
+   Sobram `GET /links/{code}` e `GET /{code}`, onde é uma resposta que **não pode acontecer**,
+   porque `code` é uma `str` sem validação. A correção **apaga** essa entrada, e depois remove os
    schemas que ficaram sem ninguém apontando para eles.
 
 O resultado é conferido por teste, e os conjuntos documentados são exatamente estes:
