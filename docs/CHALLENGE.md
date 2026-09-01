@@ -95,18 +95,40 @@ por causa de escala que este projeto não tem.
 | **Sharding** | Volume que não cabe numa instância | Problema de volume que este projeto não tem, e cuja solução torna toda consulta mais cara |
 
 Saber **quais peças saíram e por quê** é o resultado mais valioso deste projeto. Cada uma tem
-resposta pronta na tabela **"o que ficou de fora"** do [`README.md`](../README.md) da raiz.
+resposta pronta, e as duas tabelas da seção seguinte trazem o resto dos cortes.
 
 ## 5. O que ficou de fora, e por quê
 
-Além das peças de escala acima, o escopo corta funcionalidade de propósito: sem interface web, sem
-fila, sem expiração de link, sem alias customizado, sem rotas de estatística, sem autenticação, sem
-limite de taxa e sem nenhum LLM.
+Esta é a parte do repositório que mais vale ser lida. **Cada linha abaixo foi cortada de propósito**,
+e é isso que separa "projeto pequeno" de "escopo decidido". O roadmap correspondente está em
+[`PROGRESS-V2.md`](PROGRESS-V2.md), e **as duas coisas andam juntas:** puxar um item para o código
+sem tirar a linha daqui deixa esta página mentindo.
 
-Cada corte tem justificativa e um lugar para onde foi — a tabela do [`README.md`](../README.md) da
-raiz carrega a resposta curta, e [`PROGRESS-V2.md`](PROGRESS-V2.md) carrega o item de roadmap
-correspondente. **As duas coisas andam juntas:** puxar um item para o código sem tirar a linha
-correspondente da tabela deixa o README mentindo.
+As peças de escala saíram na seção anterior, [§4](#4-a-origem-o-capítulo-8-do-alex-xu). O que segue
+é tudo o que foi cortado além delas.
+
+### Funcionalidade
+
+| Corte | Por quê | Onde entra |
+|---|---|---|
+| **Interface web** | O `/docs` gerado já é uma UI completa e honesta. Um front-end acrescentaria superfície sem acrescentar argumento | — |
+| **Fila / broker** | O clique é o único candidato, e só numa escala que este projeto não tem. O critério é "perder um clique é aceitável, atrasar um redirect não" — e não "é assíncrono, então põe fila". A criação é síncrona de propósito: quem chama precisa do código de volta na mesma requisição | [ADR-0003](adr/0003-sem-fila.md), Fase 10 |
+| **Expiração de link** | Uma coluna e uma checagem — mas um link vencido tem que responder **`410 Gone`** e não `404`, porque `404` é "nunca existiu" e `410` é "existiu e acabou". Metade disso seria pior que nada | Fase 9 |
+| **Alias customizado** | A partir dele a `UNIQUE` em `code` **deixa de ser rede e vira mecanismo**, e a lista de códigos reservados deixa de ser defesa em profundidade e passa a ser a única defesa | Fase 9 |
+| **Estatísticas / agregação** | A tabela `click` já guarda o dado bruto, então isto é uma consulta e não uma mudança de modelo — que foi exatamente o motivo de não existir contador dentro de `link` | Fase 9 |
+| **Autenticação e dono do link** | Sem dono, qualquer um encurta. Num serviço real é obrigatório; aqui acrescentaria uma tabela, um header e autorização por recurso sem tocar em nenhuma das decisões que o projeto existe para demonstrar | Fase 8 |
+| **Limite de taxa** | É o primeiro item da lista de próximos passos do próprio capítulo do Xu, e existe pelo mesmo motivo: sem limite, alguém cria milhões de links de graça | Fase 8 |
+| **Qualquer LLM** | Uma URL é estruturada por definição. Um modelo acrescentaria latência, custo e um modo de falha sem resolver nada | — |
+
+### Rigor e operação
+
+| Corte | Por quê | Onde entra |
+|---|---|---|
+| **Códigos não enumeráveis** | `0000001`, `0000002`, `0000003` são links consecutivos, e alguém pode varrer o espaço usado. É o custo aceito por nunca colidir por construção. A correção é uma permutação multiplicativa sobre o id antes de codificar, e custa quinze linhas — é o melhor item técnico que o projeto ainda não tem | [ADR-0002](adr/0002-base62-sobre-a-sequence.md), Fase 8 |
+| **Resolução de nome na validação** | A política decide só pela string, então `evil.com` apontando para `127.0.0.1` passa. Resolver sairia do domínio puro (resolução é I/O) e **ainda assim não fecharia** o *DNS rebinding*, porque o endereço pode mudar entre a checagem e o clique | [`SECURITY.md`](SECURITY.md#7-o-que-não-está-defendido), Fase 8 |
+| **Observabilidade** (métricas, tracing, log estruturado) | Não existe stack de observabilidade aqui, e documentar uma seria o único documento aspiracional de um repositório cuja ética é não afirmar o que não é verdade. O que existe é um `/health` que **checa a dependência dele** | Fase 11 |
+| **Teste de mutação** | É o instrumento certo para a pergunta que a cobertura de linha não responde — se o teste que sustenta o `302` testa alguma coisa. O critério de aceite já está escrito: *o mutante que troca `302` por `301` morre* | Fase 11 |
+| **Teste de carga e deploy público** | Números de latência e vazão sem carga real são decoração; e uma URL pública é a única coisa desta lista que não muda nenhuma decisão de desenho | Fase 11 |
 
 ## 6. Critérios de aceite
 
