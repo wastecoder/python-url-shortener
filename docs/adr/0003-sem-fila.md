@@ -51,7 +51,9 @@ URL para colar em algum lugar agora.
 **Positivas:**
 
 - Nada de broker, nada de worker, nada de idempotência de consumidor para manter. O
-  `compose.yml` tem dois serviços.
+  `compose.yml` tem três serviços — `postgres`, `migrate` e `api` — e o terceiro é a migração como
+  passo de deploy (ADR-0009), não uma peça de mensageria. Uma fila somaria pelo menos dois:
+  o broker e o worker que o consome.
 - O caminho do redirect é uma consulta e uma inserção, e nada mais.
 
 **Negativas / custos:**

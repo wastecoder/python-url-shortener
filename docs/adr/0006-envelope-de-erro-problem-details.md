@@ -32,16 +32,20 @@ envelope", que o item da fase escreve com todas as letras, fica falsa a um `curl
 
 **1. `type` carrega o slug exatamente como a tabela escreve**: `"type": "invalid-target-url"`.
 
-**2. Um quinto membro no `ProblemType`, `http-error`**, e um handler para `HTTPException` do
+**2. Mais um membro no `ProblemType`, `http-error`**, e um handler para `HTTPException` do
 Starlette. Ele responde com o status que o framework escolheu, `title` igual à frase do status, e
 repassa `exc.headers` — o que preserva o `Allow` que um `405` é inútil sem.
 
 **3. `ProblemType` é um `StrEnum` de slugs, e o status *não* mora nele.** O pareamento
-erro→status fica nos cinco handlers, uma linha cada.
+erro→status fica em cada handler, uma linha cada.
 
 **4. Cinco handlers, e os dois últimos existem para fechar a afirmação:** `InvalidTargetUrlError`,
 `LinkNotFoundError`, `RequestValidationError` (substituindo o handler default do FastAPI),
 `HTTPException` e `Exception`.
+
+> **Hoje são seis.** A ADR-0008 acrescentou `ServiceUnavailableError`, com o sexto membro
+> `service-unavailable` no `ProblemType`. Os números desta ADR descrevem o que foi construído
+> quando ela foi escrita; onde eles aparecem abaixo, a contagem atual vem anotada ao lado.
 
 **5. O corpo é um modelo Pydantic**, `ProblemResponse`, serializado com `exclude_none=True`.
 Membros da RFC: `type`, `title`, `status`, `detail`, `instance`. Membros de extensão: `reason`
@@ -124,11 +128,18 @@ está vazio e `logger.exception` escreve `NoneType: None` no lugar do traceback.
   anunciada é justamente o `{"detail": [...]}` que esta ADR substitui. Declarar `content` à mão em
   cada rota não resolve: o FastAPI mescla a entrada dele ao lado, e ficam duas, uma errada. A saída
   foi `_describe_errors_accurately` no `main.py`, que conserta o documento uma vez e o guarda em
-  `openapi_schema`. Três testes afirmam o resultado, e sem a função eles reprovam.
-- Cinco handlers registrados à mão em `register_exception_handlers`, e **quatro** deles com um
+  `openapi_schema`. **Quatro** testes afirmam o resultado, e sem a função eles reprovam:
+  `test_the_documented_responses_are_the_ones_the_api_can_send`,
+  `test_every_documented_error_body_is_a_problem_document`,
+  `test_the_document_never_mentions_fastapis_own_error_shape` e
+  `test_the_health_document_advertises_both_answers` — o quarto nasceu com a ADR-0008, que
+  acrescentou o `503` documentado do `/health`. Medido: substituindo a chamada por
+  `app.openapi_schema = app.openapi()`, `uv run pytest` sai com `4 failed, 480 passed`.
+- Handlers registrados à mão em `register_exception_handlers`, e todos menos um com um
   `# type: ignore[arg-type]` na linha de registro — o Starlette tipa handler como
   `Callable[[Request, Exception], Response]` e, por contravariância, uma assinatura precisa não é
-  atribuível a isso. O quinto não precisa: `_handle_unexpected` recebe `exc: Exception`, que é
+  atribuível a isso. O que não precisa é `_handle_unexpected`, que recebe `exc: Exception`, que é
   exatamente o tipo declarado. A imprecisão fica na linha de registro, comentada, e não dentro do
-  handler, onde o checador está fazendo trabalho útil. Removendo os quatro, o `uv run mypy` acusa
-  quatro erros, nessas quatro linhas e em nenhuma outra.
+  handler, onde o checador está fazendo trabalho útil. **Hoje são seis handlers e cinco `ignore`**
+  (o sexto handler veio da ADR-0008); medido: removendo os cinco, `uv run mypy` acusa
+  `Found 5 errors in 1 file`, nessas cinco linhas e em nenhuma outra.
