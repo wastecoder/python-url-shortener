@@ -30,30 +30,77 @@ decisões — funcionalidade não é o que está sendo avaliado neste projeto.
 O projeto existe para ensinar estes pontos. Marque quando você conseguir **explicar o item sem
 consultar nada**. Esta lista é também o roteiro da entrevista.
 
+> **As caixas continuam vazias de propósito.** A Fase 7 não as marcou: o critério é "explicar sem
+> consultar", que só você consegue avaliar. O que a fase acrescentou foi a linha `→` sob cada item,
+> dizendo **onde a resposta vive hoje** — para o ensaio ser conferir, e não procurar.
+
 - [ ] Layout `src/` e por que ele impede o import acidental do pacote não instalado (Fase 0)
+  → `pyproject.toml` (`[tool.hatch.build.targets.wheel]`), `tests/unit/test_package.py`, [`DEVELOPMENT.md`](DEVELOPMENT.md#3-comandos)
 - [ ] uv: `sync`, `run`, grupos de dependência, e o que o lock garante que o `requirements.txt` não garante (Fase 0)
+  → `pyproject.toml` (`[dependency-groups]`), `uv.lock`, `Dockerfile` (`uv sync --locked` nos dois estágios), [`DEVELOPMENT.md`](DEVELOPMENT.md#7-a-imagem)
 - [ ] O que `mypy --strict` cobra que a anotação sozinha não cobra (Fase 0)
+  → `pyproject.toml` (`[tool.mypy]`, `files` com `tests` e `migrations`), `tests/fakes.py` (bloco `TYPE_CHECKING`), [`TESTS.md`](TESTS.md#6-fakes-e-não-mocks)
 - [ ] Regra de dependência verificada por ferramenta e não por convenção — o que o `import-linter` prova (Fase 0)
+  → `.importlinter`, [`ARCHITECTURE.md`](ARCHITECTURE.md#3-os-quatro-contratos-de-dependência), [ADR-0004](adr/0004-fronteira-sem-objeto-de-dominio.md)
 - [ ] Dimensionamento do espaço de chave: `62^6` versus `62^7`, e por que 7 e não 6 (Fase 1)
+  → `domain/service/base62.py` (`MAX_ID`), [`CHALLENGE.md`](CHALLENGE.md#4-a-origem-o-capítulo-8-do-alex-xu), [ADR-0002](adr/0002-base62-sobre-a-sequence.md)
 - [ ] As duas famílias de geração de código — hash com resolução de colisão versus id convertido para base 62 — e o trade-off entre elas (Fase 1)
+  → [ADR-0002](adr/0002-base62-sobre-a-sequence.md), [`CHALLENGE.md`](CHALLENGE.md#4-a-origem-o-capítulo-8-do-alex-xu)
 - [ ] Dataclass frozen versus Pydantic, e por que Pydantic não entra no domínio (Fase 1)
+  → `domain/model/`, `.importlinter` (contrato `domain-is-pure`), [`ARCHITECTURE.md`](ARCHITECTURE.md#1-visão-geral-hexagonal)
 - [ ] Validação de destino como superfície de ataque: `file://`, `localhost`, IP de rede privada (Fase 1)
+  → `domain/service/url_policy.py`, [`SECURITY.md`](SECURITY.md#2-o-que-a-política-de-destino-recusa), `tests/unit/test_url_policy.py`
 - [ ] `typing.Protocol` versus ABC, e por que Protocol é o que impede o adaptador de importar o `application` (Fase 2)
+  → `application/port/`, [`ARCHITECTURE.md`](ARCHITECTURE.md#1-visão-geral-hexagonal), `tests/fakes.py`
 - [ ] Fake versus mock, e o caso concreto em que um mock faz o teste provar nada (Fases 2 e 5)
+  → `tests/fakes.py`, [`TESTS.md`](TESTS.md#6-fakes-e-não-mocks), `tests/integration/test_deduplication.py`
 - [ ] Injeção por construtor sem framework de injeção de dependência (Fase 2)
+  → `adapter/config/dependencies.py`, [`ARCHITECTURE.md`](ARCHITECTURE.md#9-composição-e-configuração)
 - [ ] Por que este projeto é síncrono e não assíncrono, e qual é o erro clássico do FastAPI com `async def` (Fase 3)
+  → [`ARCHITECTURE.md`](ARCHITECTURE.md#4-modelo-de-execução-síncrono-de-propósito), `main.py` (o único `async def`), `CLAUDE.md`. **Único objetivo sem ADR e sem teste próprio** — ver a lista honesta abaixo
 - [ ] 301 versus 302, e o que o 301 custa em medição e em controle (Fase 3)
+  → [ADR-0001](adr/0001-redirect-302.md), [`README.md`](../README.md#o-fluxo), [`API.md`](API.md#12-get-code--seguir-o-código), `tests/unit/test_redirect_endpoint.py`
 - [ ] Por que o default do `RedirectResponse` é 307 e por que 307 está errado aqui (Fase 3)
+  → `adapter/web/redirect_controller.py` (o `status_code=` explícito), [ADR-0001](adr/0001-redirect-302.md), [`API.md`](API.md#12-get-code--seguir-o-código)
 - [ ] Rota catch-all na raiz, ordem de registro, e a mesma questão vista pelo lado do gerador — os códigos reservados (Fases 1 e 3)
+  → `main.py` (`create_app`), `domain/service/url_policy.py` (`RESERVED_CODES`), [`ARCHITECTURE.md`](ARCHITECTURE.md#6-fluxo-de-redirect-get-code), `tests/unit/test_app_routes.py`
 - [ ] Problem Details (RFC 7807), e por que 400 e 422 são coisas diferentes (Fase 3)
+  → [ADR-0006](adr/0006-envelope-de-erro-problem-details.md), [`API.md`](API.md#2-erros-rfc-7807), `adapter/web/handler/`
 - [ ] Condição de corrida em check-then-act, e por que só a constraint fecha a janela (Fase 4)
+  → `application/usecase/create_link_use_case.py`, [`README.md`](../README.md#o-fluxo), [`ARCHITECTURE.md`](ARCHITECTURE.md#5-fluxo-de-criação-post-links), `tests/integration/test_deduplication.py`
 - [ ] Por que o índice único é sobre `sha256(url)` e não sobre a URL — o limite de tamanho de entrada em btree (Fase 4)
+  → `domain/service/url_hash.py`, [`ARCHITECTURE.md`](ARCHITECTURE.md#7-modelo-de-dados), `migrations/versions/cee192947f04_create_link_and_click.py`
 - [ ] Por que a `UNIQUE` em `code` é rede de segurança e não mecanismo, e por que ainda assim ela fica (Fase 4)
+  → `adapter/persistence/entity/link_entity.py`, [`ARCHITECTURE.md`](ARCHITECTURE.md#7-modelo-de-dados), [ADR-0002](adr/0002-base62-sobre-a-sequence.md)
 - [ ] Escrita no caminho de leitura: contenção de linha, e por que `click` é append-only (Fase 4)
+  → [`README.md`](../README.md#o-fluxo), [`ARCHITECTURE.md`](ARCHITECTURE.md#7-modelo-de-dados), `tests/integration/test_click_is_recorded.py`
 - [ ] Teste que verifica estado do banco versus teste que verifica retorno de função (Fase 5)
+  → [`TESTS.md`](TESTS.md#8-os-testes-que-carregam-o-projeto), `tests/integration/conftest.py` (a engine de asserção, separada)
 - [ ] `services:` do GitHub Actions versus container subido pelo próprio teste (Fase 5)
+  → `.github/workflows/ci.yml` (**não** declara `services:`), `tests/integration/conftest.py`, [`TESTS.md`](TESTS.md#9-os-dois-gates-de-cobertura)
 - [ ] Quais peças do desenho do Alex Xu foram tiradas e por quê — Snowflake, Redis, bloom filter, sharding (Fase 7)
+  → [`README.md`](../README.md#o-que-ficou-de-fora), [`CHALLENGE.md`](CHALLENGE.md#4-a-origem-o-capítulo-8-do-alex-xu)
 - [ ] O que ficou de fora de propósito, e o que cada corte teria custado (Fase 7)
+  → [`README.md`](../README.md#o-que-ficou-de-fora), [`PROGRESS-V2.md`](PROGRESS-V2.md)
+
+### O que faltou, honestamente
+
+Três lacunas encontradas ao montar o mapa acima. Nenhuma invalida um objetivo; todas são pontos em
+que a defesa se apoia em prosa e não em algo que fique vermelho.
+
+1. **O modelo síncrono é o único item da lista sem ADR e sem teste.** Ele vive no `CLAUDE.md` e
+   agora no `ARCHITECTURE.md`, e nada no repositório reprova se um `async def` aparecer num
+   controlador. É a decisão mais fácil de quebrar em silêncio, porque quebrá-la exige mudar as
+   assinaturas das portas — e um `async def` isolado num controlador *compila*. Escrever a ADR foi
+   avaliado nesta fase e **descartado por decisão do usuário**; um contrato de `import-linter` não
+   consegue expressá-la, então o candidato natural seria um teste que varre `adapter/web` por
+   `async def`.
+2. **A lista de códigos reservados não tem chamador em `src/`.** `is_reserved_code` e
+   `ReservedCodeError` existem e são testados, e nenhuma linha de produção os usa — o que está
+   correto e documentado (com sete caracteres fixos, colisão é impossível), mas significa que a
+   metade "códigos reservados" do objetivo é defendida por argumento e não por comportamento.
+3. **A metade "no CI" de três critérios de fase segue não verificada**, porque depende do `push` e
+   do pull request, que são passos manuais fora deste repositório. Vale para as Fases 5, 6 e 7.
 
 ## Fase 0 — Fundação do repositório
 
@@ -430,12 +477,51 @@ consultar nada**. Esta lista é também o roteiro da entrevista.
 
 ## Fase 7 — Documentação e acabamento
 
-- [ ] `README.md` em português: o problema em três frases, o diagrama do fluxo em Mermaid, `docker compose up`, a **seção de decisões** e a **tabela do que ficou de fora** com a resposta pronta para cada corte. Essa tabela é a parte do repositório que um entrevistador técnico lê primeiro
-- [ ] Revisar os três ADRs escritos na Fase 0 contra o que foi de fato construído, e acrescentar um quarto se alguma decisão estrutural tiver mudado no caminho
-- [ ] Revisão do histórico: mensagens legíveis, nenhum commit gigante, nenhum trailer de co-autoria
-- [ ] Marcar em `Objetivos de aprendizado` tudo que você já explica sem consultar, e listar honestamente o que faltou
-- **Critério:** um clone limpo sobe com um comando, e o README responde sozinho as seis coisas que sustentam o projeto: Testcontainers verificando estado do banco, a constraint fechando a corrida da deduplicação, 302 versus 301, `click` append-only, as peças do desenho do Xu que saíram, e a tabela de cortes com a justificativa de cada um.
-- **Documento de aprendizado:** `docs/learning/fase-7-documentacao.md`
+- [x] ~~`README.md` em português: o problema em três frases, o diagrama do fluxo em Mermaid, `docker compose up`, a **seção de decisões** e a **tabela do que ficou de fora** com a resposta pronta para cada corte. Essa tabela é a parte do repositório que um entrevistador técnico lê primeiro~~
+  - **Feito, e a fase cresceu de um arquivo para oito.** O item pedia um README; o que foi construído foi um conjunto de documentação com o README como **hub**, no formato do projeto irmão `shopflow`: cada seção é um resumo denso que termina apontando para o documento que carrega o detalhe. `README.md` (342 linhas) mais sete arquivos novos em `docs/` — `README.md` (índice), `CHALLENGE.md`, `ARCHITECTURE.md`, `API.md`, `DEVELOPMENT.md`, `TESTS.md` e `SECURITY.md`, **2.363 linhas ao todo**.
+  - **A tabela "o que ficou de fora" mora no README e só nele**, em três blocos: as peças de escala do desenho do Xu, os cortes de funcionalidade e os de rigor/operação. É o que o `PROGRESS-V2.md` exige — as duas coisas andam juntas, e uma segunda cópia seria uma segunda coisa para manter verdadeira.
+  - **Dois diagramas Mermaid, e nenhum repetido.** O README leva um hexágono compacto de três caixas e um `flowchart` do produto inteiro — os dois fluxos com a corrida perdida, o `201` versus `200` e o `INSERT` em `click` anotados. O `ARCHITECTURE.md` leva o hexágono detalhado, os dois fluxos em `sequenceDiagram` e o `erDiagram` do schema. Níveis de detalhe diferentes, e não duplicação.
+  - **Badges:** o do CI aponta para o workflow real (`wastecoder/python-url-shortener`); o de cobertura diz **100%** porque o gate é `--fail-under=100`, e não porque soa bem.
+  - **`SECURITY.md` entrou contra a intuição inicial**, e é o documento com mais conteúdo próprio: a `url_policy` já implementada recusa `javascript:`, `file://`, `data:`, credencial na URL, `localhost` e sufixos internos, toda faixa não roteável — incluindo `169.254.169.254` — e as quatro grafias de IPv6 que carregam um IPv4. Tem uma seção **"o que não está defendido"** com oito itens, que é a metade que importa numa entrevista.
+  - **`OBSERVABILITY.md` foi avaliado e recusado.** Não existe métrica, tracing nem log estruturado neste projeto; o documento seria o único aspiracional num repositório cuja ética é não afirmar o que não é verdade. A ausência virou linha da tabela de cortes.
+  - **Nenhum exemplo foi escrito de cabeça.** Os quinze corpos de resposta do `API.md` foram **capturados da aplicação rodando** (script com `TestClient`, relógio congelado, `BASE_URL=http://localhost:8000`), e as 68 URLs da tabela de recusas do `SECURITY.md` foram **executadas contra a `url_policy` real** — motivo e mensagem são a saída literal.
+  - **Verificado:** `uv run pytest -m ""` → **505 passed**; os dois gates → **100%** (317 statements / 72 branches em `domain`+`application`, 715 / 92 na árvore inteira); `ruff check`, `ruff format --check` (**136 arquivos**, que já incluem os documentos novos), `mypy` e `lint-imports` limpos; e um checador escrito para esta fase resolveu **214 links relativos e âncoras** em 19 arquivos, todos existentes.
+  - **Fora deste item:** `postman/` (para quatro rotas com `curl` de uma linha é cerimônia, e o `/docs` já é a coleção) e renomear `PROGRESS-V1/V2` para o padrão `PROGRESS`/`FUTURE-PROGRESS` do shopflow (quebraria links internos, o `CLAUDE.md` e as referências no histórico).
+  - **Caveat:** `ruff format` processa Markdown, então os blocos Python dos documentos passaram a ser gateados pelo CI. Os únicos são o `get_session` no `ARCHITECTURE.md` e o `PostgresContainer` no `TESTS.md`; ambos formatados.
+- [x] ~~Revisar os três ADRs escritos na Fase 0 contra o que foi de fato construído, e acrescentar um quarto se alguma decisão estrutural tiver mudado no caminho~~
+  - **O item estava desatualizado, e o trabalho real era outro.** Não existem três ADRs: existem **nove**. Os 0001–0003 são da Fase 0 e os 0004–0009 nasceram nas Fases 3 a 6. Então não havia "um quarto" a escrever — havia nove a auditar contra o código.
+  - **Auditoria adversarial dos nove, afirmação por afirmação, e cinco eram falsas.** Todas em contagens que envelheceram quando o código passou por cima delas, e **todas as correções foram medidas, não raciocinadas**:
+    - **ADR-0003 dizia que o `compose.yml` tem dois serviços.** Tem três — `postgres`, `migrate` e `api` — desde a Fase 6. A contagem era a evidência de "nada de broker para manter", então agora ela nomeia o terceiro e diz por que ele não é um.
+    - **ADR-0006 contava cinco handlers, cinco tipos de problema e quatro `type: ignore[arg-type]`.** São seis, seis e cinco. **Medido:** removendo os cinco `ignore`, `uv run mypy` acusa `Found 5 errors in 1 file`, nas linhas 54–57 e 60 e em nenhuma outra.
+    - **ADR-0006 dizia que três testes reprovam sem `_describe_errors_accurately`.** **Medido**, trocando a chamada por `app.openapi_schema = app.openapi()`: `4 failed, 480 passed`. O quarto é `test_the_health_document_advertises_both_answers`, que a própria ADR-0008 criou ao documentar o `503` do `/health`. Os quatro estão nomeados agora.
+    - **ADR-0008 descrevia a proporção como quatro `ignore` em cinco handlers**, que era o estado *antes* da mudança que ela própria descreve.
+  - **Nenhum ADR novo, por decisão do usuário.** Três candidatos foram levantados e recusados: o modelo síncrono, "quem garante a invariante é o banco" e as settings/engine no lifespan. O primeiro é a lacuna honesta registrada nos objetivos de aprendizado.
+  - **Uma imprecisão foi levantada e não virou mudança:** a ADR-0007 diz "o FastAPI 0.141.1 que este projeto trava", e o `pyproject.toml` declara `>=0.141.1`, que é piso. Quem trava é o `uv.lock`, e o `--locked` do CI e do Dockerfile é o que o torna efetivo — a frase continua verdadeira.
+  - **Verificado:** ver o commit `docs(adr): correct the counts an audit measured as wrong`, com as medições no corpo da mensagem.
+- [x] ~~Revisão do histórico: mensagens legíveis, nenhum commit gigante, nenhum trailer de co-autoria~~
+  - **Limpo, e verificado por comando e não por leitura.** `git log --all` não tem **nenhuma** linha começando com `Co-Authored-By:`, `Signed-off-by:` ou `Generated with`, e nenhuma menção a Claude ou Anthropic fora de referências ao arquivo `CLAUDE.md`. 99 commits, um autor só.
+  - **Os 99 assuntos casam com o padrão Conventional** — `git log --format='%s' | grep -vE '^(feat|fix|refactor|test|docs|build|ci|chore|perf|style)(\([a-z]+\))?: [a-z]'` não devolve nada.
+  - **Nenhum commit gigante.** Os dois maiores são `chore: initial commit` (13 arquivos, 2.476 inserções, **todas de roadmap e configuração**) e `chore: add the hexagonal package skeleton` (21 arquivos, **101 inserções**, que são 21 `__init__.py`). Os dois são um conceito só. 26 dos 99 carregam corpo além do assunto.
+  - **Um achado real, e a correção foi no `CLAUDE.md` e não no histórico:** o vocabulário de escopos usado (`adr`, `progress`, `github`, `docker`, `compose`, `alembic`, `uv`, `lint`, `mypy`, `imports`, `packaging`) é mais largo que a lista de sete que o `CLAUDE.md` declarava — e os **exemplos do próprio arquivo** já usavam `docs(adr)`, `ci(github)` e `build(uv)`, fora da lista. A lista nunca foi fechada; agora ela diz isso.
+  - **Nada foi reescrito.** A `main` já foi publicada, então um histórico com violação seria reportado e não reescrito. Não houve violação.
+- [x] ~~Marcar em `Objetivos de aprendizado` tudo que você já explica sem consultar, e listar honestamente o que faltou~~
+  - **As caixas continuam vazias, de propósito.** O critério da lista é "explicar sem consultar nada", que é auto-avaliação do usuário; marcar por ele transformaria a lista numa mentira. O que a fase entregou foi o **mapa de evidências**: cada um dos 24 objetivos ganhou uma linha `→` dizendo onde a resposta vive hoje — arquivo, teste, ADR e seção do documento novo — para o ensaio ser conferir em vez de procurar.
+  - **A lista honesta do que faltou tem três itens**, e o primeiro é o que mais vale: **o modelo síncrono é o único objetivo sem ADR e sem teste**. Nada no repositório reprova se um `async def` aparecer num controlador, e essa é justamente a decisão mais fácil de quebrar em silêncio, porque um `async def` isolado *compila*. Os outros dois: a lista de códigos reservados não tem chamador em `src/` (correto e documentado, mas defendido por argumento e não por comportamento), e a metade "no CI" de três critérios de fase segue não verificada.
+- **Critério:** ~~um clone limpo sobe com um comando, e o README responde sozinho as seis coisas que sustentam o projeto: Testcontainers verificando estado do banco, a constraint fechando a corrida da deduplicação, 302 versus 301, `click` append-only, as peças do desenho do Xu que saíram, e a tabela de cortes com a justificativa de cada um.~~ **Atendido, com uma releitura do "sozinho" que precisa ser dita.**
+  - **A seção "Decisões em destaque" é só a tabela dos nove ADRs**, por decisão do usuário e no formato do shopflow. Então as seis respostas **não** se concentram ali: elas caem nas seções normais do README, que é onde um leitor as encontra sem procurar.
+
+    | O que o critério exige | Onde o README responde |
+    |---|---|
+    | Testcontainers verificando estado do banco | §Testes e qualidade — a tabela dos seis testes que carregam o projeto |
+    | A constraint fechando a corrida | §O fluxo — o `ON CONFLICT` e o ramo do perdedor estão **no diagrama**, com três parágrafos abaixo |
+    | 302 versus 301 | §O fluxo, segundo parágrafo, com o `307` junto |
+    | `click` append-only | §O fluxo, terceiro parágrafo, e o `INSERT INTO click` no diagrama |
+    | As peças do Xu que saíram | §O que ficou de fora, primeira tabela |
+    | A tabela de cortes | §O que ficou de fora, as outras duas tabelas |
+  - **`docker compose up` num clone limpo continua sendo um comando só**, e isso não mudou nesta fase: nenhuma linha de `src/`, de `compose.yml`, do `Dockerfile` ou do `ci.yml` foi tocada. **Toda a Fase 7 é documentação**, e é por isso que os números da Fase 6 seguem idênticos.
+  - **Os gates:** `uv run pytest -m ""` → **505 passed**; `uv run coverage report` → **100%** nos dois escopos, zero statements e zero branches perdidos; `uv run mypy` → `Success: no issues found in 116 source files`; `ruff check .` e `ruff format --check .` limpos em **136 arquivos**; `uv run lint-imports` → **`Contracts: 4 kept, 0 broken`**.
+  - **`git diff --stat main..HEAD`: 12 arquivos, 2.375 inserções, 67 remoções, em 9 commits** — sem contar este registro, que é o décimo.
+- **Documento de aprendizado:** `docs/learning/fase-7-documentacao.md`, com o exercício em `docs/learning/exercicio_fase_7.py`.
 
 ## Extras, se sobrar tempo
 
