@@ -1,4 +1,4 @@
-# Two jobs, and the split is the same one the test suite makes.
+# Three jobs, and the first split is the same one the test suite makes.
 #
 # `check` needs no Docker and finishes in seconds: it is everything that can be decided by reading
 # the code, plus the fast test suite, plus the coverage gate on the two layers that suite can
@@ -7,7 +7,9 @@
 #
 # They do not depend on each other. A lint error and a broken redirect are independent facts, and
 # a pull request that has both should be told both at once rather than one round trip at a time.
-# The image build joins in Fase 6.
+# `image` is the third, added in Fase 6, and it is independent of both for the same reason: it
+# answers a question neither of the others can, which is whether the thing that gets deployed
+# -- the image, the migration and the compose file, not the source tree -- actually serves.
 
 name: CI
 
@@ -105,3 +107,69 @@ jobs:
       # request that explains why. The domain gate is not.
       - name: Coverage of the whole tree
         run: uv run coverage report --fail-under=100
+
+  # The two jobs above run the code. This one runs the artifact, which is a different claim: it
+  # builds the image, brings up the same three services a clean clone brings up, and drives the
+  # flow the phase promises through the published port. `docker build` alone would prove the image
+  # compiles -- not that the migration ran before the server started, not that the non-root user can
+  # read what it needs, and not that `BASE_URL` reaches the response.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build the image
+        run: docker compose build
+
+      # `--wait` blocks until every service is healthy or, for the one-shot migration, has exited
+      # cleanly. It is the same wait a person does by staring at `docker compose ps`, and it fails
+      # the job instead of letting the next step race a server that is not listening yet.
+      - name: Start the stack
+        run: docker compose up -d --wait
+
+      # The phase's own criterion, executed. The redirect is requested exactly once -- `%{http_code}`
+      # and `%{redirect_url}` come out of the same call -- so the `total_clicks` assertion below means
+      # "one access, one row" rather than "some number greater than zero".
+      #
+      # `short_url` is asserted out of a body that is already in hand, and that is what makes the claim
+      # above about `BASE_URL` true: its value reaches the container only through `compose.yml`, so it
+      # is the one part of the response neither of the other two jobs can be right or wrong about.
+      #
+      # Deduplication is deliberately not asserted here. It is covered against a real PostgreSQL by
+      # the integration suite, including under concurrency, and repeating it here would add runtime
+      # without adding anything about the image, which is what this job is about.
+      - name: Create a link, follow it, and read what it recorded
+        run: |
+          set -euo pipefail
+          target='https://www.example.com/a/very/long/path?with=query'
+
+          status=$(curl -sS -o created.json -w '%{http_code}' \
+            -X POST http://localhost:8000/links \
+            -H 'content-type: application/json' \
+            -d "{\"url\": \"$target\"}")
+          test "$status" = 201
+          code=$(python3 -c 'import json; print(json.load(open("created.json"))["code"])')
+
+          read -r status location <<<"$(curl -sS -o /dev/null \
+            -w '%{http_code} %{redirect_url}' "http://localhost:8000/$code")"
+          test "$status" = 302
+          test "$location" = "$target"
+
+          curl -sS --fail-with-body -o details.json "http://localhost:8000/links/$code"
+          clicks=$(python3 -c 'import json; print(json.load(open("details.json"))["total_clicks"])')
+          short_url=$(python3 -c 'import json; print(json.load(open("details.json"))["short_url"])')
+          test "$clicks" = 1
+          test "$short_url" = "http://localhost:8000/$code"
+
+      # Without this, a failure above is a red X next to a `test` command and nothing else. The
+      # answer is almost always in the logs of a container that is about to be thrown away.
+      - name: What the containers said, if any of that failed
+        if: failure()
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color
+
+      # There is no teardown step on purpose. The runner is destroyed with the job, so a
+      # `docker compose down -v` here would be ceremony -- and the local version of it, which does
+      # matter, is in the README.
