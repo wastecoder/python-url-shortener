@@ -64,6 +64,13 @@ url-shortener/
 ├─ migrations/                # Alembic (versions/)
 ├─ .github/workflows/ci.yml
 ├─ docs/
+│  ├─ README.md               # documentation index, ADR table, maintenance conventions
+│  ├─ CHALLENGE.md            # the brief: context, requirements, acceptance criteria, the Xu mapping
+│  ├─ ARCHITECTURE.md         # hexagon, packages, dependency contracts, runtime model, flows, data model
+│  ├─ API.md                  # the four routes, bodies, the RFC 7807 taxonomy, curl walkthrough
+│  ├─ DEVELOPMENT.md          # how to run, commands, migrations, the pipeline, where things live
+│  ├─ TESTS.md                # strategy, Testcontainers, Object Mother, the two coverage gates
+│  ├─ SECURITY.md             # what the target policy refuses, and what is NOT defended
 │  ├─ PROGRESS-V1.md          # minimum scope, phase by phase
 │  ├─ PROGRESS-V2.md          # what was cut on purpose
 │  ├─ adr/000N-*.md           # short numbered ADRs, Portuguese
@@ -76,8 +83,20 @@ url-shortener/
    └─ integration/            # Testcontainers, marked `integration`
 ```
 
-`docs/` stays minimal on purpose. The README carries architecture and API; splitting them into
-`ARCHITECTURE.md` / `API.md` is only worth it if the project grows past V1.
+**The root `README.md` is a hub, not a manual.** Every section is a dense summary that ends by
+pointing at the document carrying the detail — the shape the sibling `shopflow` project uses. The
+one thing the README owns outright is the **"o que ficou de fora"** table: it lives there and
+nowhere else, because `PROGRESS-V2.md` requires the two to move together, and a second copy would
+be a second thing to keep true.
+
+Each document under `docs/` **declares its own scope in the opening paragraph and hands the rest
+off by link.** When a concept belongs to two documents, link — do not duplicate. `docs/README.md`
+carries the full index and the maintenance conventions.
+
+**No `OBSERVABILITY.md`.** There is no metrics, tracing or structured-logging stack in this project
+and there is not meant to be one in V1, so such a file would be the only aspirational document in a
+repository whose whole ethos is that no document states what is not true. The absence is a row in
+the README's cuts table, and `/health` is documented in `API.md` and ADR-0008.
 
 ## Architecture (hexagonal / ports & adapters — horizontal layout)
 Dependencies point **inward**: `adapter -> application -> domain`.
@@ -92,8 +111,8 @@ Packages below are relative to `src/url_shortener/`.
 | Layer | Package | Naming / examples |
 |---|---|---|
 | Domain model | `domain.model` | frozen dataclasses — `Link`, `Click`, `ShortCode` |
-| Domain services (pure) | `domain.service` | `base62.py` (`encode`/`decode`), `url_policy.py` (target validation + reserved codes) |
-| Domain errors | `domain.exception` | `DomainError` base; `InvalidTargetUrlError`, `LinkNotFoundError`, `ReservedCodeError` |
+| Domain services (pure) | `domain.service` | `base62.py` (`encode`/`decode`), `url_policy.py` (target validation + reserved codes), `url_hash.py` (`hash_url` and the `UrlHash` NewType — the digest is a business rule, so it is computed here and not in the repository) |
+| Domain errors | `domain.exception` | `DomainError` base; `InvalidTargetUrlError`, `LinkNotFoundError`, `ReservedCodeError`; plus `RejectionReason`, which lives here rather than beside `url_policy` to avoid an import cycle |
 | Driving ports | `application.port.inbound` | `Protocol` — `CreateLinkUseCase`, `ResolveLinkUseCase`, `GetLinkDetailsUseCase` |
 | Driven ports | `application.port.outbound` | `Protocol` — `LinkRepository`, `ClickRepository`, `Clock` |
 | Use cases | `application.usecase` | `CreateLinkUseCaseImpl` in `create_link_use_case.py`, one file per use case |
@@ -376,7 +395,11 @@ Format: `<type>(<optional scope>): <imperative, lower-case summary>`
 
 Accepted types: `feat`, `fix`, `refactor`, `test`, `docs`, `build`, `ci`, `chore`, `perf`, `style`.
 
-Scopes follow the layout: `domain`, `application`, `web`, `persistence`, `config`, `db`, `deps`.
+Scopes follow the layout — `domain`, `application`, `web`, `persistence`, `config`, `db`, `deps` —
+**or the tool the commit is about**, which is what the history actually contains: `adr`, `progress`,
+`github`, `docker`, `compose`, `alembic`, `uv`, `lint`, `mypy`, `imports`, `packaging`. The list is
+illustrative, not closed; the scope names the thing being changed, and a commit that fits none of
+them takes no scope at all.
 
 Examples:
 - `feat(domain): add base62 encoding with fixed-length 7 output`
