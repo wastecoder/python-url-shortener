@@ -6,9 +6,10 @@ feito, com um subitem `Verificado:`. **Nada aqui é necessário para 01/09.**
 
 Cada item desta lista foi **cortado de propósito**, e é isso que separa "projeto pequeno" de
 "escopo decidido": o que ficou de fora rende tanto em entrevista quanto o que ficou dentro. A
-resposta pronta para cada corte mora na tabela **"o que ficou de fora"** do `README.md` (Fase 7 do
-V1) — **as duas coisas precisam andar juntas**: puxar um item para o código sem tirar a linha
-correspondente da tabela deixa o README mentindo.
+resposta pronta para cada corte mora na tabela **"o que ficou de fora"** do
+[`CHALLENGE.md`](CHALLENGE.md#5-o-que-ficou-de-fora-e-por-quê) (Fase 7 do V1) — **as duas coisas
+precisam andar juntas**: puxar um item para o código sem tirar a linha correspondente da tabela
+deixa aquela página mentindo.
 
 **Se o projeto continuar, comece pela Fase 8.** A permutação é a melhor resposta técnica que o
 projeto ainda não tem, e custa quinze linhas.

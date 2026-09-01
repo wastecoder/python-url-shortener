@@ -8,7 +8,7 @@ Esta pasta concentra a documentação técnica do **url-shortener**. O [README d
 
 | Documento | Para quê serve |
 |---|---|
-| [CHALLENGE.md](CHALLENGE.md) | O *brief* do desafio: contexto, requisitos, critérios de aceite, e o mapeamento do capítulo 8 do Alex Xu — o que foi mantido e o que foi tirado. **Comece por aqui.** |
+| [CHALLENGE.md](CHALLENGE.md) | O *brief* do desafio: contexto, requisitos, critérios de aceite, o mapeamento do capítulo 8 do Alex Xu — o que foi mantido e o que foi tirado — e a tabela do **que ficou de fora**, com a resposta pronta para cada corte. **Comece por aqui.** |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Arquitetura hexagonal, estrutura de pacotes, os contratos de dependência verificados por ferramenta, o modelo de execução síncrono, os dois fluxos em diagrama de sequência e o modelo de dados. |
 | [API.md](API.md) | Referência do contrato HTTP: as quatro rotas, corpos de requisição e resposta, a taxonomia de erros (RFC 7807) e o *walkthrough* do fluxo com `curl`. |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Como rodar localmente com e sem Docker, comandos do `uv`, migrations, configuração, o pipeline de CI e onde achar cada coisa no código. |
