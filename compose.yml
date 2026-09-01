@@ -1,9 +1,23 @@
-# The database this project runs against locally.
+# The whole project, in one command: `docker compose up`.
 #
-# Only `postgres` lives here. The `api` service and the Dockerfile arrive in Fase 6, and a compose
-# file naming a service nobody has built yet is a file that lies about what `docker compose up`
-# does. Until then the application runs on the host -- `uv run uvicorn url_shortener.main:app` --
-# and reaches this container through the published port.
+# Three services and the order between them is the point. `postgres` has to be accepting
+# connections before `migrate` can run, `migrate` has to have finished before `api` starts, and
+# both of those are stated as conditions rather than left to timing. `migrate` and `api` are the
+# same image with different commands -- the migration is a deploy step of this application, not a
+# thing the application does to itself at boot. ADR-0009.
+
+# The two settings the application reads, written once. `Settings` forbids extra keys and gives
+# nothing a default, so both are required -- including `BASE_URL` in the migration container, which
+# never builds a short URL. `migrations/env.py` reads the same `Settings` object the application
+# does, so the migration validates the whole configuration or refuses to start.
+#
+# Written out here rather than through `env_file: .env`, which would be the shorter version and a
+# bug: the `.env` of a developer who followed `.env.example` points `DATABASE_URL` at
+# `localhost:5432`, which inside a container is the container itself. Compose reads that same
+# `.env` for its own interpolation, which is harmless; injecting it into a service is not.
+x-app-environment: &app-environment
+  DATABASE_URL: postgresql+psycopg://url_shortener:url_shortener@postgres:5432/url_shortener
+  BASE_URL: http://localhost:8000
 
 services:
   postgres:
@@ -12,9 +26,11 @@ services:
     # bare `18` still moves under you on every minor release. 18.6 is the current stable.
     image: postgres:18.6-alpine
 
-    # These three are the DSN in `.env.example`, character for character, so a fresh clone works
-    # with no edit. They are development credentials for a container bound to a local port and
-    # nothing else; the deployed database's credentials come from the environment, never from here.
+    # These three are the DSN above and the one in `.env.example`, character for character, so a
+    # fresh clone works with no edit. They are development credentials, and the port below is
+    # published on every interface of this machine and not only on loopback -- acceptable for a
+    # laptop database that holds nothing, and the reason a deployed database's credentials come
+    # from the environment and never from a file in the repository.
     environment:
       POSTGRES_USER: url_shortener
       POSTGRES_PASSWORD: url_shortener
@@ -33,13 +49,48 @@ services:
     # A container that is up is not a database that is accepting connections. Without this,
     # `docker compose up -d postgres` followed immediately by `alembic upgrade head` is a race that
     # is lost often enough to be annoying and won often enough to look flaky. It is also what the
-    # `api` service of Fase 6 will wait on with `condition: service_healthy`.
+    # two services below wait on with `condition: service_healthy`.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U url_shortener -d url_shortener"]
       interval: 5s
       timeout: 3s
       retries: 10
       start_period: 10s
+
+  # Runs the migrations and exits. It is not a server, and that is the decision: the schema is
+  # brought up to date by a process whose whole job is that, once per `up`, instead of by every
+  # replica of the API racing the others through `alembic upgrade head` on startup. ADR-0009.
+  migrate:
+    build: .
+    # Named, and named the same as `api` below, so both services are the same image rather than two
+    # builds of the same Dockerfile that could drift apart in a cache-less environment.
+    image: url-shortener:0.1.0
+    command: ["alembic", "upgrade", "head"]
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # The image declares an HTTP health check, which is right for the API and meaningless here --
+    # this container never starts a server, so the check could only ever fail while the migration
+    # it is watching runs correctly. Disabled rather than inherited and ignored.
+    healthcheck:
+      disable: true
+
+  api:
+    build: .
+    image: url-shortener:0.1.0
+    environment: *app-environment
+    ports:
+      - "8000:8000"
+    depends_on:
+      # Both conditions, and they say different things. `service_healthy` waits for a database that
+      # answers; `service_completed_successfully` waits for the migration to have finished **with
+      # exit code 0**, so a migration that fails stops the API from ever starting instead of
+      # letting it come up and answer 500 over a schema that is not there.
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres-data:
