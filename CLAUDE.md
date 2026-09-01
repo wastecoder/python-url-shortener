@@ -21,8 +21,9 @@ valuable output of this project.
 
 The step-by-step build order lives in `docs/PROGRESS-V1.md` (the minimum viable scope) and
 `docs/PROGRESS-V2.md` (everything cut on purpose). The root `README.md` is the primary artifact a
-reviewer reads: problem in three sentences, flow diagram, one command to run it, a **decisions**
-section, and the **what was left out** table. `docs/adr/` holds short numbered ADRs.
+reviewer reads: problem in three sentences, flow diagram, one command to run it, and the four-call
+walkthrough — every section a dense summary ending in a link out. `docs/CHALLENGE.md` carries the
+**what was left out** table, and `docs/adr/` holds short numbered ADRs.
 
 ## Scope guard
 **In scope (V1):** create link, redirect, read link metadata, health. Nothing else.
@@ -30,7 +31,7 @@ section, and the **what was left out** table. `docs/adr/` holds short numbered A
 **Deliberately out of V1 — do not add these unless explicitly asked:** web UI, message queue,
 link expiration, custom alias, statistics/aggregation endpoints, authentication, rate limiting,
 Redis cache, distributed id generation, sharding, any LLM. Each one has a prepared answer in the
-"what was left out" table of the README; adding one silently destroys that answer.
+"what was left out" table of `docs/CHALLENGE.md`; adding one silently destroys that answer.
 
 If a change looks like it needs one of the above, **say so and stop** — it belongs in
 `docs/PROGRESS-V2.md`, not in the code.
@@ -52,7 +53,7 @@ Single Python package, `src` layout, managed by **uv**.
 ```
 url-shortener/
 ├─ CLAUDE.md                  # this file
-├─ README.md                  # problem, diagram, how to run, decisions, what was left out
+├─ README.md                  # hub: problem, diagram, how to run, walkthrough, links out
 ├─ pyproject.toml             # deps + ruff, mypy, pytest, coverage config
 ├─ uv.lock
 ├─ .python-version            # 3.13
@@ -65,7 +66,8 @@ url-shortener/
 ├─ .github/workflows/ci.yml
 ├─ docs/
 │  ├─ README.md               # documentation index, ADR table, maintenance conventions
-│  ├─ CHALLENGE.md            # the brief: context, requirements, acceptance criteria, the Xu mapping
+│  ├─ CHALLENGE.md            # the brief: context, requirements, acceptance criteria, the Xu
+│  │                          #   mapping, and the "what was left out" table
 │  ├─ ARCHITECTURE.md         # hexagon, packages, dependency contracts, runtime model, flows, data model
 │  ├─ API.md                  # the four routes, bodies, the RFC 7807 taxonomy, curl walkthrough
 │  ├─ DEVELOPMENT.md          # how to run, commands, migrations, the pipeline, where things live
@@ -85,9 +87,10 @@ url-shortener/
 
 **The root `README.md` is a hub, not a manual.** Every section is a dense summary that ends by
 pointing at the document carrying the detail — the shape the sibling `shopflow` project uses. The
-one thing the README owns outright is the **"o que ficou de fora"** table: it lives there and
-nowhere else, because `PROGRESS-V2.md` requires the two to move together, and a second copy would
-be a second thing to keep true.
+README owns no table outright. The **"o que ficou de fora"** table lives in `docs/CHALLENGE.md` and
+nowhere else — where it continues the Xu mapping that precedes it and qualifies the acceptance
+criteria that follow — because `PROGRESS-V2.md` requires the two to move together, and a second copy
+would be a second thing to keep true. The ADR table lives in `docs/README.md`, also exactly once.
 
 Each document under `docs/` **declares its own scope in the opening paragraph and hands the rest
 off by link.** When a concept belongs to two documents, link — do not duplicate. `docs/README.md`
@@ -96,7 +99,7 @@ carries the full index and the maintenance conventions.
 **No `OBSERVABILITY.md`.** There is no metrics, tracing or structured-logging stack in this project
 and there is not meant to be one in V1, so such a file would be the only aspirational document in a
 repository whose whole ethos is that no document states what is not true. The absence is a row in
-the README's cuts table, and `/health` is documented in `API.md` and ADR-0008.
+the cuts table in `docs/CHALLENGE.md`, and `/health` is documented in `API.md` and ADR-0008.
 
 ## Architecture (hexagonal / ports & adapters — horizontal layout)
 Dependencies point **inward**: `adapter -> application -> domain`.
