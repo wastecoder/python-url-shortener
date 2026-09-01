@@ -139,5 +139,7 @@ mudança entraria, se um dia valer.
 - **Duas engines por processo**, e portanto duas coisas para o lifespan descartar. Um teste afirma
   que as duas são descartadas no shutdown, porque esquecer a segunda seria um vazamento que só
   aparece depois de muitos reinícios.
-- Um sexto handler registrado à mão, com o mesmo `type: ignore[arg-type]` que quatro dos cinco
-  atuais carregam, pela contravariância da assinatura que o Starlette declara.
+- Um sexto handler registrado à mão, com o mesmo `type: ignore[arg-type]` que os anteriores
+  carregam, pela contravariância da assinatura que o Starlette declara. Depois desta mudança são
+  **seis handlers e cinco `ignore`** — só `_handle_unexpected` dispensa o seu, porque recebe
+  `exc: Exception`, que é exatamente o tipo que o Starlette declara.
