@@ -29,14 +29,12 @@ Duas naturezas de teste, e só duas.
 | Unitário | Domínio, casos de uso, adaptador web e wiring, com os portos de saída trocados por *fakes* | Não | `uv run pytest` |
 | Integração | A aplicação inteira contra um PostgreSQL de verdade, sem nada substituído | Sim | `uv run pytest -m integration` |
 
-```console
-$ uv run pytest -m ""
-505 passed
-```
+Os números, porque citar "505 testes" sem dizer de qual deles se fala induz a erro:
 
-**505 itens coletados: 484 unitários e 21 de integração.** Escritas, são 235 funções unitárias em 31
-arquivos e 21 de integração em 6 — a diferença entre 235 e 484 é inteiramente
-`@pytest.mark.parametrize`. Citar "505 testes" sem dizer qual dos dois números é qual induz a erro.
+- **505 itens coletados** ao todo.
+- **484 unitários**, escritos como **235 funções** em **31 arquivos**.
+- **21 de integração**, escritos como **21 funções** em **6 arquivos**.
+- A diferença entre 235 funções e 484 itens é inteiramente `@pytest.mark.parametrize`.
 
 Não existe um terceiro nível. Com um serviço só, **integração já é o topo**; inventar um "ponta a
 ponta" acima dele seria renomear a mesma coisa.
