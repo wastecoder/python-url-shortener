@@ -111,8 +111,7 @@ src/url_shortener/
 ```
 
 **`inbound`/`outbound`, e não `in`/`out`.** `in` é palavra reservada — `application.port.in` seria
-erro de sintaxe no import. É o único desvio intencional em relação aos nomes de pacote do projeto
-Java.
+erro de sintaxe no import.
 
 ### Sufixo, papel e onde mora
 
