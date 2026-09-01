@@ -25,8 +25,6 @@ estudo e portfólio, escrito para que cada decisão de desenho seja defensável,
 - [Como rodar](#como-rodar)
 - [O fluxo na prática](#o-fluxo-na-prática)
 - [Testes e qualidade](#testes-e-qualidade)
-- [Decisões em destaque](#decisões-em-destaque)
-- [O que ficou de fora](#o-que-ficou-de-fora)
 - [Documentação](#documentação)
 - [Roadmap](#roadmap)
 
@@ -47,6 +45,12 @@ Quatro rotas, e nada além delas:
 julgado pelo tanto que cada decisão consegue ser justificada. Quatro rotas com testes de integração
 contra um banco de verdade, um CI que barra o merge e uma documentação que explica os trade-offs
 valem mais aqui do que vinte rotas sem nada disso.
+
+**O que ficou de fora ficou de fora de propósito**, e cada corte tem resposta pronta: as peças de
+escala do desenho do Alex Xu no
+[`CHALLENGE.md` §4](docs/CHALLENGE.md#4-a-origem-o-capítulo-8-do-alex-xu), e a funcionalidade e o
+rigor cortados na [tabela do §5](docs/CHALLENGE.md#5-o-que-ficou-de-fora-e-por-quê) — com o roadmap
+correspondente em [`docs/PROGRESS-V2.md`](docs/PROGRESS-V2.md).
 
 Objetivos de aprendizado exercitados:
 
@@ -173,10 +177,15 @@ Precisa de Docker, e de mais nada — nem Python instalado, nem `.env`, nem migr
 docker compose up
 ```
 
-Sobem três coisas, **nesta ordem**: o PostgreSQL, um serviço que aplica as migrations e sai, e a API
-na porta 8000. A API só é iniciada depois de a migration ter saído com **código 0**, então uma
-migration que falha impede o servidor de subir em vez de deixá-lo responder `500` sobre um schema que
-não existe ([ADR-0009](docs/adr/0009-migracao-e-passo-de-deploy.md)).
+Sobem três serviços, **nesta ordem**:
+
+1. **`postgres`** — o banco, num volume próprio.
+2. **`migrate`** — aplica as migrations do Alembic e sai.
+3. **`api`** — o servidor, na porta 8000.
+
+A `api` só é iniciada depois de a `migrate` ter saído com **código 0**, então uma migration que falha
+impede o servidor de subir em vez de deixá-lo responder `500` sobre um schema que não existe
+([ADR-0009](docs/adr/0009-migracao-e-passo-de-deploy.md)).
 
 A documentação interativa fica em <http://localhost:8000/docs>, e **é a interface deste projeto**:
 não há front-end porque não é preciso um.
@@ -186,20 +195,43 @@ Docker, comandos do `uv` e configuração: [`docs/DEVELOPMENT.md`](docs/DEVELOPM
 
 ## O fluxo na prática
 
-```bash
-# cria o link -- 201 Created, e o Location aponta para os metadados
-curl -sS -X POST localhost:8000/links -H 'content-type: application/json' \
-     -d '{"url": "https://docs.python.org/3/library/dataclasses.html"}'
+Quatro chamadas percorrem o projeto inteiro, e cada uma existe para provar uma decisão diferente.
 
-# a mesma URL de novo -- 200 OK, o mesmo codigo, e uma unica linha no banco
+**1. Encurtar** — responde `201 Created`, e o `Location` aponta para `/links/{code}`, o recurso que
+acabou de ser criado. Não para a URL curta, que já vem no corpo.
+
+```bash
+curl -i -X POST localhost:8000/links -H 'content-type: application/json' \
+     -d '{"url": "https://docs.python.org/3/library/dataclasses.html"}'
+```
+
+**2. A mesma URL de novo** — responde `200 OK` com **o mesmo código**, e `link` continua com **uma
+linha**. O status é a única diferença entre os dois desfechos: `201` é "criei agora", `200` é "já
+existia", e quem chama distingue sem que o corpo precise carregar um campo dizendo qual foi.
+
+```bash
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST localhost:8000/links \
      -H 'content-type: application/json' \
      -d '{"url": "https://docs.python.org/3/library/dataclasses.html"}'
+```
 
-# segue o codigo -- 302 Found, e o acesso fica registrado
+**3. Seguir o código** — responde `302`, e grava o acesso **antes** de montar a resposta. O `code`
+são os sete caracteres e nada mais; a URL curta inteira não casa com a rota.
+
+```bash
 curl -i localhost:8000/0000001
+```
 
-# o que ficou registrado, inclusive o total de acessos
+```http
+HTTP/1.1 302 Found
+location: https://docs.python.org/3/library/dataclasses.html
+cache-control: no-store
+```
+
+**4. Ler o que ficou registrado** — o `total_clicks` é um `COUNT` sobre `click` no momento da
+leitura, e não uma coluna de contador em `link`. É por isso que ele já conta o passo 3.
+
+```bash
 curl -sS localhost:8000/links/0000001
 ```
 
@@ -213,21 +245,9 @@ curl -sS localhost:8000/links/0000001
 }
 ```
 
-Um destino que a política recusa sai no envelope RFC 7807, como **todo** erro desta API:
-
-```json
-{
-  "type": "invalid-target-url",
-  "title": "The target URL was refused",
-  "status": 400,
-  "detail": "169.254.169.254 is not a publicly routable address",
-  "instance": "/links",
-  "reason": "non-public-address"
-}
-```
-
-Corpos de requisição e resposta, a taxonomia completa de erros e o *walkthrough* em
-[`docs/API.md`](docs/API.md).
+Um destino que a política recusa sai no envelope RFC 7807 — como **todo** erro desta API, inclusive
+os que o roteador produz antes de qualquer controlador rodar. Corpos, a taxonomia completa de erros
+e o *walkthrough* em [`docs/API.md`](docs/API.md).
 
 ## Testes e qualidade
 
@@ -253,81 +273,31 @@ Os que carregam o projeto:
 | O `COMMIT` que falha | Uma constraint adiada faz o segundo redirect responder **`500`, e não `302`** — a fronteira da transação como fato observável |
 | `/health` com o pool esgotado | As quinze conexões são retiradas à mão e o endpoint responde `200` na hora |
 
-O CI roda três jobs independentes — `check`, `integration` e `image` — e o terceiro constrói a
-imagem, sobe a stack inteira e exercita o fluxo pela porta publicada. **A `main` é protegida e exige
-`check` e `integration`**, então um pull request vermelho em qualquer um dos dois não é mergeável; o
-`image` roda em todo pull request mas não é contexto obrigatório. Estratégia completa em
-[`docs/TESTS.md`](docs/TESTS.md).
+O CI roda três jobs independentes, sem `needs:` entre eles:
 
-## Decisões em destaque
-
-| ADR | Tema |
+| Job | O que faz |
 |---|---|
-| [0001](docs/adr/0001-redirect-302.md) | O redirect é `302`, não `301` |
-| [0002](docs/adr/0002-base62-sobre-a-sequence.md) | Código gerado por base 62 sobre a sequence, não por hash da URL |
-| [0003](docs/adr/0003-sem-fila.md) | Sem fila, e o lugar exato onde ela entraria |
-| [0004](docs/adr/0004-fronteira-sem-objeto-de-dominio.md) | A fronteira da aplicação não carrega objeto de domínio |
-| [0005](docs/adr/0005-corpo-de-requisicao-sem-httpurl.md) | O corpo do `POST /links` carrega uma string, não um `HttpUrl` |
-| [0006](docs/adr/0006-envelope-de-erro-problem-details.md) | Todo erro da API sai no mesmo envelope Problem Details |
-| [0007](docs/adr/0007-fronteira-da-transacao.md) | A transação commita antes de a resposta ser enviada |
-| [0008](docs/adr/0008-health-responde-503-no-mesmo-envelope.md) | O `/health` responde `503` no mesmo envelope, e é o único `503` da API |
-| [0009](docs/adr/0009-migracao-e-passo-de-deploy.md) | A migração é um passo do deploy, não do startup da aplicação |
+| `check` | `ruff check`, `ruff format --check`, `mypy`, `lint-imports`, os testes unitários e o gate de cobertura de `domain` + `application` |
+| `integration` | As duas suítes contra um PostgreSQL de verdade, e o gate de cobertura da árvore inteira |
+| `image` | Constrói a imagem, sobe a stack com `--wait` e exercita o fluxo pela porta publicada |
 
-## O que ficou de fora
-
-Esta é a parte do repositório que mais vale ser lida. **Cada linha abaixo foi cortada de propósito**,
-e é isso que separa "projeto pequeno" de "escopo decidido". O roadmap correspondente está em
-[`docs/PROGRESS-V2.md`](docs/PROGRESS-V2.md), e as duas coisas andam juntas: puxar um item para o
-código sem tirar a linha daqui deixa este README mentindo.
-
-### As peças de escala do desenho do Alex Xu
-
-O algoritmo do código curto segue o capítulo 8 de *System Design Interview* — alfabeto de 62,
-comprimento 7, id sequencial em base 62. O que saiu só existe lá por causa de escala que este projeto
-não tem.
-
-| Peça | O que ela resolve lá | Por que sai daqui |
-|---|---|---|
-| **Gerador de id distribuído** (Snowflake) | Vários nós escrevendo precisam de ids únicos sem coordenar | Há **um** PostgreSQL escrevendo. A `BIGSERIAL` já **é** o gerador, é transacional e é de graça |
-| **Cache Redis** na leitura | Absorver o redirect, que é o caminho quente | Sem número de tráfego, um cache é uma segunda fonte de verdade e um problema de invalidação comprados de graça. O repositório está atrás de uma porta: quando o número existir, o cache entra como implementação nova e **nenhuma outra camada muda** |
-| **Bloom filter** | "Esse código já existe?", sem ir ao banco | A pergunta não existe aqui: o código não é escolhido, é derivado de um id que o banco acabou de emitir |
-| **Sharding** | Volume que não cabe numa instância | Problema de volume que este projeto não tem, e cuja solução torna toda consulta mais cara |
-
-### Funcionalidade
-
-| Corte | Por quê | Onde entra |
-|---|---|---|
-| **Interface web** | O `/docs` gerado já é uma UI completa e honesta. Um front-end acrescentaria superfície sem acrescentar argumento | — |
-| **Fila / broker** | O clique é o único candidato, e só numa escala que este projeto não tem. O critério é "perder um clique é aceitável, atrasar um redirect não" — e não "é assíncrono, então põe fila". A criação é síncrona de propósito: quem chama precisa do código de volta na mesma requisição | [ADR-0003](docs/adr/0003-sem-fila.md), Fase 10 |
-| **Expiração de link** | Uma coluna e uma checagem — mas um link vencido tem que responder **`410 Gone`** e não `404`, porque `404` é "nunca existiu" e `410` é "existiu e acabou". Metade disso seria pior que nada | Fase 9 |
-| **Alias customizado** | A partir dele a `UNIQUE` em `code` **deixa de ser rede e vira mecanismo**, e a lista de códigos reservados deixa de ser defesa em profundidade e passa a ser a única defesa | Fase 9 |
-| **Estatísticas / agregação** | A tabela `click` já guarda o dado bruto, então isto é uma consulta e não uma mudança de modelo — que foi exatamente o motivo de não existir contador dentro de `link` | Fase 9 |
-| **Autenticação e dono do link** | Sem dono, qualquer um encurta. Num serviço real é obrigatório; aqui acrescentaria uma tabela, um header e autorização por recurso sem tocar em nenhuma das decisões que o projeto existe para demonstrar | Fase 8 |
-| **Limite de taxa** | É o primeiro item da lista de próximos passos do próprio capítulo do Xu, e existe pelo mesmo motivo: sem limite, alguém cria milhões de links de graça | Fase 8 |
-| **Qualquer LLM** | Uma URL é estruturada por definição. Um modelo acrescentaria latência, custo e um modo de falha sem resolver nada | — |
-
-### Rigor e operação
-
-| Corte | Por quê | Onde entra |
-|---|---|---|
-| **Códigos não enumeráveis** | `0000001`, `0000002`, `0000003` são links consecutivos, e alguém pode varrer o espaço usado. É o custo aceito por nunca colidir por construção. A correção é uma permutação multiplicativa sobre o id antes de codificar, e custa quinze linhas — é o melhor item técnico que o projeto ainda não tem | [ADR-0002](docs/adr/0002-base62-sobre-a-sequence.md), Fase 8 |
-| **Resolução de nome na validação** | A política decide só pela string, então `evil.com` apontando para `127.0.0.1` passa. Resolver sairia do domínio puro (resolução é I/O) e **ainda assim não fecharia** o *DNS rebinding*, porque o endereço pode mudar entre a checagem e o clique | [`SECURITY.md`](docs/SECURITY.md#7-o-que-não-está-defendido), Fase 8 |
-| **Observabilidade** (métricas, tracing, log estruturado) | Não existe stack de observabilidade aqui, e documentar uma seria o único documento aspiracional de um repositório cuja ética é não afirmar o que não é verdade. O que existe é um `/health` que **checa a dependência dele** | Fase 11 |
-| **Teste de mutação** | É o instrumento certo para a pergunta que a cobertura de linha não responde — se o teste que sustenta o `302` testa alguma coisa. O critério de aceite já está escrito: *o mutante que troca `302` por `301` morre* | Fase 11 |
-| **Teste de carga e deploy público** | Números de latência e vazão sem carga real são decoração; e uma URL pública é a única coisa desta lista que não muda nenhuma decisão de desenho | Fase 11 |
+**A `main` é protegida e exige `check` e `integration`**, então um pull request vermelho em qualquer
+um dos dois não é mergeável. O `image` roda em todo pull request mas **não** é contexto obrigatório —
+um PR vermelho só nele ainda mergeia, e fechar essa folga é uma linha nas configurações de proteção
+da branch. Estratégia completa em [`docs/TESTS.md`](docs/TESTS.md).
 
 ## Documentação
 
 | Documento | Conteúdo |
 |---|---|
 | [`docs/README.md`](docs/README.md) | Índice da documentação e por onde começar |
-| [`docs/CHALLENGE.md`](docs/CHALLENGE.md) | O *brief* do desafio: contexto, requisitos, critérios de aceite e o mapeamento do capítulo do Xu |
+| [`docs/CHALLENGE.md`](docs/CHALLENGE.md) | O *brief* do desafio: contexto, requisitos, critérios de aceite, o mapeamento do capítulo do Xu e a tabela do **que ficou de fora** |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Hexágono, pacotes, contratos de dependência, modelo síncrono, os dois fluxos e o modelo de dados |
 | [`docs/API.md`](docs/API.md) | As quatro rotas, corpos, a taxonomia de erros RFC 7807 e o *walkthrough* |
 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Como rodar com e sem Docker, comandos, migrations, o pipeline e onde achar cada coisa |
 | [`docs/TESTS.md`](docs/TESTS.md) | Estratégia, Testcontainers, Object Mother e os dois gates de cobertura |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | O que a política de destino recusa, as defesas da imagem, e o que **não** está defendido |
-| [`docs/adr/`](docs/adr/) | Nove ADRs: o porquê de cada decisão estrutural |
+| [`docs/adr/`](docs/adr/) | Nove ADRs: o porquê de cada decisão estrutural — [a tabela com os temas](docs/README.md#adrs) |
 | [`docs/PROGRESS-V1.md`](docs/PROGRESS-V1.md) · [`docs/PROGRESS-V2.md`](docs/PROGRESS-V2.md) | O roadmap fase a fase, e o que ficou de fora |
 
 ## Roadmap
