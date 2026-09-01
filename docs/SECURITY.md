@@ -43,8 +43,9 @@ segunda taxonomia de status.
 
 ## 2. O que a política de destino recusa
 
-Onze pontos de recusa, na ordem em que rodam, e nove motivos (`forbidden-character` cobre três
-situações diferentes).
+Onze pontos de recusa e nove motivos (`forbidden-character` cobre três situações diferentes). As
+seções abaixo seguem a ordem em que os checks rodam; dentro de cada tabela, as linhas estão
+agrupadas por assunto.
 
 ### Antes de parsear, na string crua
 
@@ -86,8 +87,11 @@ A checagem de credencial testa **ausência, não veracidade**: `parts.username i
 isso que `https://@example.com/` — nome de usuário vazio — também é recusado. Testar só o nome basta:
 uma senha não parseia sem um, então `:secret@host` chega com nome `""` e não `None`.
 
-`malformed-url` só é alcançável porque a porta é **lida** durante a validação. Deixada sem ler, uma
-porta impossível apareceria muito depois como erro não tratado, em vez de como recusa.
+As duas linhas de `malformed-url` chegam lá por caminhos diferentes. O `http://[::1/` já faz o
+`urlsplit` levantar ao parsear; o `http://example.com:99999/` **parseia sem reclamar**, e é o acesso
+a `parts.port` que levanta — ou seja, aquela linha só é alcançável porque a porta é **lida** durante
+a validação. Deixada sem ler, uma porta impossível apareceria muito depois como erro não tratado, em
+vez de como recusa.
 
 ### O host, quando é um endereço literal
 
@@ -110,9 +114,13 @@ A decisão é `address.is_global and not address.is_multicast`, e **`is_global` 
 perguntar `is_private` deixaria o carrier NAT passar, porque aquela faixa não é nem privada nem
 global. O multicast é a única coisa que o `is_global` ainda chama de global, e sai à mão.
 
-As quatro grafias de IPv6 que carregam um IPv4 são desembrulhadas e reperguntadas: só a mapeada
-(`::ffff:a.b.c.d`) e a 6to4 já são vistas pelo `is_global`; a compatível (`::/96`) e o prefixo NAT64
-(`64:ff9b::/96`) foram acrescentadas à mão.
+As quatro grafias de IPv6 que carregam um IPv4 são desembrulhadas e reperguntadas, e **medir isso
+derruba a explicação intuitiva**. Só a mapeada (`::ffff:a.b.c.d`) o `is_global` resolve sozinho, e
+resolve pelo IPv4 de dentro: `::ffff:127.0.0.1` é `False` e `::ffff:8.8.8.8` é `True`. Nas outras
+três ele decide pelo prefixo e erra **nos dois sentidos** — chama `::127.0.0.1` (compatível, `::/96`)
+e `64:ff9b::7f00:1` (NAT64) de globais mesmo carregando loopback, e chama `2002:808:808::` de não
+global mesmo carregando `8.8.8.8`, porque recusa o bloco 6to4 inteiro. **É o desembrulho que acerta
+as três**, nas duas direções.
 
 O ponto final do DNS é removido com `rstrip(".")` **antes** da checagem de endereço, e não com
 `removesuffix` — `127.0.0.1..` também existe. Sem isso, `127.0.0.1.` passaria pela checagem de
@@ -139,13 +147,20 @@ endereço como se fosse um nome.
 | `http://0177.0.0.1/` | `non-public-host` | **`127.0.0.1` em octal** |
 
 As quatro últimas são as interessantes: **o `ipaddress` não as lê como endereço, mas o navegador
-resolve todas para `127.0.0.1`.** Elas são pegas pela última regra do ramo de nomes — o rótulo final
-tem que ser inteiramente alfabético ou começar com `xn--`. `2130706433` não é nenhum dos dois.
+resolve todas para `127.0.0.1`.** E as quatro não caem na mesma regra: `2130706433` e `0x7f000001`
+não têm ponto nenhum, então são pegas pela regra de **rótulo único**, a mesma que pega
+`http://intranet/`. `127.1` e `0177.0.0.1` é que caem na última regra do ramo de nomes — o rótulo
+final tem que ser inteiramente alfabético ou começar com `xn--`, e `1` não é nenhum dos dois.
 
 A checagem de "isto está escrito como um nome de host?" existe por causa de um desacordo real entre
 padrões, e não por capricho: o parser usado aqui segue a **RFC 3986**, todo navegador segue o
-**WHATWG URL Standard**, e os dois discordam sobre a barra invertida. Sem essa checagem,
-`http://127.0.0.1\` navegaria direto.
+**WHATWG URL Standard**, e os dois discordam sobre a barra invertida.
+
+**Medido, porque o exemplo óbvio é o errado:** sem essa checagem, `http://127.0.0.1\` ainda seria
+recusado — o rótulo final vira `1\`, que não é alfabético, então a regra de nome o pega como
+`non-public-host`. Quem realmente passaria direto são os outros três: o host percent-encoded de
+`http://%6c%6fcalhost.example.com/`, o rótulo vazio de `http://a..b.com/` e o hífen na ponta de
+`http://-example.com/` — nenhum deles é apanhado por nenhuma outra regra.
 
 ## 3. O que é aceito
 
@@ -179,7 +194,8 @@ e duas grafias do mesmo endereço deixariam de ser dois links. A consequência �
 - **Nenhum segredo no código, nunca.** Toda configuração vem de variável de ambiente por
   `adapter/config/settings.py`.
 - **`.env` está no `.gitignore`; `.env.example` é versionado** e não carrega segredo nenhum — só o
-  DSN de desenvolvimento que o `compose.yml` também usa.
+  DSN de desenvolvimento, com o mesmo usuário, senha e banco que o `compose.yml` cria. O host é que
+  difere: `localhost` no arquivo, `postgres` dentro da rede do compose.
 - **Nada tem default.** `Settings` não dá default a `DATABASE_URL` nem a `BASE_URL`, e usa
   `extra="forbid"`. Uma configuração faltando **falha alto no startup** em vez de rodar em silêncio
   contra o banco errado.
@@ -207,7 +223,9 @@ e duas grafias do mesmo endereço deixariam de ser dois links. A consequência �
 O `_client_address` do controlador de redirect **não** lê `X-Forwarded-For` — ele lê só o peer da
 conexão. Mas o processo como um todo lê: o **uvicorn** vem com `proxy_headers=True` e
 `forwarded_allow_ips` de `127.0.0.1`, então o `ProxyHeadersMiddleware` dele reescreve o peer a partir
-daquele cabeçalho para qualquer requisição que chegue por loopback.
+daquele cabeçalho para toda requisição cujo peer seja **exatamente `127.0.0.1`**. Medido: a
+comparação é com aquele endereço literal e não com a faixa de loopback, então `127.0.0.2` e `::1`,
+que também são loopback, **não** são confiados.
 
 **Consequência:** se nada confiável estiver na frente, rode com `--forwarded-allow-ips=""` (ou
 `--no-proxy-headers`). Caso contrário, um cliente que fale direto com o processo pela loopback pode

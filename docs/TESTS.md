@@ -91,8 +91,10 @@ Os dois `conftest.py` combinam onde importa:
 | Peer do cliente | `203.0.113.7:51234` | idem |
 | Escopo do app | por teste | por teste |
 
-**O que o conftest unitário sobrescreve é deliberadamente estreito:** só os portos de saída. Nem as
-settings, nem os casos de uso. Todo teste unitário roda o `CreateLinkUseCaseImpl` de verdade, o
+**O que o conftest unitário sobrescreve é deliberadamente estreito:** os três portos de saída — os
+dois repositórios e o relógio — mais o `HealthProbe`, que **não** é porto de saída, porque mora em
+`adapter/web/` ([ADR-0008](adr/0008-health-responde-503-no-mesmo-envelope.md)). Nem as settings, nem
+os casos de uso. Todo teste unitário roda o `CreateLinkUseCaseImpl` de verdade, o
 fluxo de deduplicação de verdade e o wiring de verdade do `dependencies.py`. E como o FastAPI
 resolve *overrides* através de sub-dependências, trocar a folha basta — é por isso que **nenhum
 desses testes abre conexão** apesar de a aplicação estar ligada ao PostgreSQL: `get_session` fica
@@ -153,8 +155,8 @@ coisa sob teste.
 e a pergunta é *quantos links existem*, não *quantas vezes `save` foi chamado*. Um mock responde a
 segunda pergunta e chama isso de prova.
 
-`InMemoryLinkRepository` modela os dois índices únicos que importam — por digest e por código — e um
-contador monotônico. O `save` devolve `False` quando o digest já está tomado, espelhando o
+`InMemoryLinkRepository` mantém dois índices de busca — por digest e por código — e um contador
+monotônico. O `save` devolve `False` quando o digest já está tomado, espelhando o
 `ON CONFLICT (url_hash) DO NOTHING`. O índice único sobre `code` **não é modelado**, de propósito:
 uma colisão de código não pode acontecer ali, então o ramo seria código morto que o gate de
 cobertura depois teria que ser instruído a ignorar.
@@ -311,8 +313,15 @@ no CI precisa ser mantido em dia com o `compose.yml` à mão.
    sabe o que afirma.
 4. **Use as mothers** para os sujeitos, a menos que o que esteja sob teste seja a construção deles.
 5. **Não faça mock do repositório num teste de integração.** Leia o banco pela fixture `database`.
-6. **Rode os dois gates antes de commitar:** `uv run pytest -m ""` e
-   `uv run coverage report --fail-under=100`.
+6. **Rode os dois gates antes de commitar** — e note o `--cov`: sem ele a rodada não grava dado
+   nenhum, e o `coverage report` seguinte responde `No data to report.` ou, pior, julga um
+   `.coverage` velho de outra rodada.
+
+   ```bash
+   uv run pytest -m "" --cov --cov-report=
+   uv run coverage report --include="src/url_shortener/domain/*,src/url_shortener/application/*" --fail-under=100
+   uv run coverage report --fail-under=100
+   ```
 
 ## 11. Referências
 

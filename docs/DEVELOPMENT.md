@@ -109,9 +109,13 @@ Duas armadilhas nessa tabela:
 
 ```bash
 uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run lint-imports
-uv run pytest -m ""
+uv run pytest -m "" --cov --cov-report=
+uv run coverage report --include="src/url_shortener/domain/*,src/url_shortener/application/*" --fail-under=100
 uv run coverage report --fail-under=100
 ```
+
+O `--cov` na linha do `pytest` não é opcional: sem ele nada é gravado, e o `coverage report`
+seguinte responde `No data to report.` — ou julga o `.coverage` de uma rodada anterior.
 
 ### Caveat conhecido — a pasta sincronizada em nuvem
 
@@ -201,8 +205,9 @@ Pontos que valem saber ao mexer:
   numa imagem construída a partir de uma resolução que ninguém revisou.
 - **O `COPY` do runtime não usa `--chown`.** Os arquivos ficam de `root` e o usuário `app` tem
   exatamente o que usa: ler e executar, sem poder reescrever o código que executa.
-- **A porta `8000` aparece duas vezes** — no `CMD` e no `HEALTHCHECK` — porque o `HEALTHCHECK` não
-  enxerga a porta do `CMD`. Mudar uma exige mudar a outra.
+- **A porta `8000` aparece três vezes** — no `EXPOSE`, no `HEALTHCHECK` e no `CMD` — porque o
+  `HEALTHCHECK` não enxerga a porta do `CMD`. Mudar uma exige mudar as outras duas, e ainda o
+  `"8000:8000"` do `compose.yml`.
 - **Sem `--workers`.** Um container é um processo; quantos deles rodam é contagem de réplica, e isso
   pertence a quem escalona containers, não à imagem.
 
@@ -226,10 +231,13 @@ consegue ler o que precisa, e não que o `BASE_URL` chega na resposta.
 daemon Docker, e o Testcontainers sobe, migra e joga fora o próprio PostgreSQL de dentro da sessão de
 teste.
 
-A branch `main` é protegida e exige o check do CI — **e não exige review**, que é impossível de
-satisfazer sozinho. O merge é restrito a **rebase**, para o histórico de um-conceito-por-commit
-sobreviver em vez de virar uma linha só. O `enforce_admins` está ligado: sem ele, o dono do
-repositório passaria por cima com um clique e "o CI barra o merge" seria frase decorativa.
+A branch `main` é protegida e exige os contextos **`check` e `integration`** — **e não exige
+review**, que é impossível de satisfazer sozinho. O `image` roda em todo pull request mas **não** é
+contexto obrigatório, então um PR vermelho só nele continua mergeável; é uma folga conhecida, e
+fechá-la é acrescentar `image` à lista de contextos exigidos. O merge é restrito a **rebase**, para
+o histórico de um-conceito-por-commit sobreviver em vez de virar uma linha só. O `enforce_admins`
+está ligado: sem ele, o dono do repositório passaria por cima com um clique e "o CI barra o merge"
+seria frase decorativa.
 
 ## 9. Onde achar as coisas no código
 
