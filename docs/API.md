@@ -6,7 +6,9 @@ envelope**, `application/problem+json` (RFC 7807), inclusive os que o roteador p
 qualquer código deste projeto rodar.
 
 Base local: `http://localhost:8000`, que é o que `docker compose up` publica. Os exemplos abaixo
-foram **capturados da aplicação rodando**, não escritos à mão.
+foram **capturados da aplicação rodando**, não escritos à mão — com o relógio congelado, que é a
+única coisa alterada: numa execução de verdade o `created_at` traz o instante real e com
+microssegundos (`2026-09-01T13:50:38.933945Z`).
 
 - [1. Rotas](#1-rotas)
 - [2. Erros (RFC 7807)](#2-erros-rfc-7807)
@@ -35,11 +37,26 @@ Corpo: um único campo `url`, string. **Campo desconhecido é recusado** (`extra
 `https://example.com` e `https://example.com/` são dois links diferentes. O campo é `str` e não um
 tipo de URL do Pydantic, de propósito: [ADR-0005](adr/0005-corpo-de-requisicao-sem-httpurl.md).
 
+#### Requisição
+
+Pelo Swagger (<http://localhost:8000/docs> -> `POST /links` -> **Try it out**), o corpo a colar na
+caixa *Request body*:
+
+```json
+{
+  "url": "https://docs.python.org/3/library/dataclasses.html"
+}
+```
+
+O mesmo por `curl`:
+
 ```bash
 curl -i -X POST localhost:8000/links \
      -H 'content-type: application/json' \
      -d '{"url": "https://docs.python.org/3/library/dataclasses.html"}'
 ```
+
+#### Resposta
 
 **`201 Created`** — a URL era nova:
 
@@ -93,9 +110,16 @@ sequer a forma certa. A diferença está em [§2](#2-erros-rfc-7807).
 
 ### 1.2 `GET /{code}` — seguir o código
 
+#### Requisição
+
+Um parâmetro só, no caminho, e nenhum corpo. O `code` são **os sete caracteres e nada mais** — não
+a URL curta inteira.
+
 ```bash
 curl -i localhost:8000/0000001
 ```
+
+#### Resposta
 
 ```http
 HTTP/1.1 302 Found
@@ -128,11 +152,50 @@ instante vem da porta `Clock` da aplicação e **não** da requisição, os dois
 dela, e o endereço a partir do peer da conexão. Cabeçalho ausente vira `NULL`; um endereço que não
 parseia vira `NULL` também, e não um erro.
 
+#### Por que esta rota parece quebrada no Swagger
+
+Ela não está. **É a única das quatro que o Swagger UI não consegue exibir**, e as duas maneiras de
+tropeçar têm causas diferentes.
+
+**Colando `localhost:8000/0000001` no campo `code`**, o Swagger percent-encoda o valor e pede
+`GET /localhost%3A8000%2F0000001`. Isso é um caminho de **dois segmentos**, e `/{code}` casa com
+**um** — nenhuma rota casa, e o roteador responde `404` antes de qualquer controlador rodar:
+
+```json
+{
+  "type": "http-error",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Not Found",
+  "instance": "/localhost:8000/0000001"
+}
+```
+
+O `type` denuncia qual dos dois `404` é: `http-error` é o **roteador recusando**, enquanto um código
+bem formado sem link responderia `link-not-found`. O campo pede o código, não a URL curta.
+
+**Colando só `0000001`**, o Swagger mostra `Failed to fetch` — e mesmo assim **a API respondeu `302`
+e o clique foi gravado**. Dá para conferir: `GET /links/0000001` mostra o `total_clicks` maior
+depois de cada tentativa. O que falha é o passo seguinte, e ele é do navegador. O `fetch` do Swagger
+segue o redirect sozinho, o destino é **outra origem**, e essa origem não manda
+`Access-Control-Allow-Origin` autorizando `http://localhost:8000` a ler a resposta dela; o navegador
+bloqueia a leitura e o Swagger só sabe dizer que a busca falhou.
+
+Não há o que corrigir: o cabeçalho teria que vir do destino, e nenhum cliente de verdade de um
+encurtador é um `fetch` de dentro de outra página. Para ver o redirect, use `curl -i` — ou cole a
+URL curta na barra de endereço, que é navegação de topo e não passa por CORS.
+
 ### 1.3 `GET /links/{code}` — ler o link
+
+#### Requisição
+
+O `code`, no caminho. Sem corpo.
 
 ```bash
 curl -sS localhost:8000/links/0000001
 ```
+
+#### Resposta
 
 ```json
 {
@@ -153,9 +216,15 @@ o total é calculado na leitura, que é o caminho frio. Ver [§Modelo de dados][
 
 ### 1.4 `GET /health` — reportar saúde
 
+#### Requisição
+
+Sem parâmetro e sem corpo.
+
 ```bash
 curl -sS localhost:8000/health
 ```
+
+#### Resposta
 
 ```json
 { "status": "ok" }
