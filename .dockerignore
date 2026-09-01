@@ -1,0 +1,28 @@
+# An allowlist, not a denylist: everything is excluded, and what the image is built from is let
+# back in by name.
+#
+# A denylist is wrong by omission. It lists what exists on the day it is written, and the next file
+# created at the root with a credential in it travels to the daemon without anyone having decided
+# that. Here a new file has to be named below to be part of a build at all.
+#
+# It is also what makes this repository buildable in the first place: `.venv/` holds tens of
+# thousands of small files inside a cloud-synced folder, and a denylist that forgot one entry would
+# upload all of them as build context.
+
+*
+
+# What the build actually reads.
+!pyproject.toml
+!uv.lock
+!src
+!alembic.ini
+!migrations
+
+# Not here as documentation. `pyproject.toml` declares `readme = "README.md"`, so hatchling refuses
+# to build the wheel without it, and the failure surfaces from inside the build backend with no
+# mention of this file.
+!README.md
+
+# Re-excluded after the two directories above are let in. A `__pycache__` written by a run on the
+# host was compiled by the host's interpreter and has no business being copied into the image.
+**/__pycache__
